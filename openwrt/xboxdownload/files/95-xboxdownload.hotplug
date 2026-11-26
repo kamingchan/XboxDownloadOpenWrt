@@ -1,5 +1,5 @@
 #!/bin/sh
-# Sourced by hotplug-call. rc.common serializes the restore with stop/reload.
+# Sourced by hotplug-call. restore_alias serializes against stop/reload via alias.lock.
 case "$ACTION" in
 	ifup|ifupdate)
 		if [ -f /var/run/xboxdownload.netstate ]; then

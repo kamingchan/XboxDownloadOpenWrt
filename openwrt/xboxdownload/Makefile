@@ -34,7 +34,6 @@ endef
 
 define Package/xboxdownload/conffiles
 /etc/config/xboxdownload
-/etc/xboxdownload/
 endef
 
 define Build/Prepare

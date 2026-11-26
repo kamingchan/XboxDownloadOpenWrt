@@ -207,7 +207,7 @@ render_config() (
 	json_dump > "$tmp" && mv -f "$tmp" "$CONFIG"
 )
 
-remove_alias() {
+remove_alias_unlocked() {
 	local prev_lan_dev prev_alias_ip
 	if [ -f "$NETSTATE" ]; then
 		if read -r prev_lan_dev prev_alias_ip < "$NETSTATE" && valid_device "$prev_lan_dev" && valid_ip ip4addr "$prev_alias_ip"; then
@@ -216,6 +216,11 @@ remove_alias() {
 		rm -f "$NETSTATE" || return 1
 	fi
 }
+
+remove_alias() {
+	flock -w 10 7 || { error 'Timed out waiting for alias lock'; return 1; }
+	remove_alias_unlocked
+} 7>/var/lock/xboxdownload-alias.lock
 
 # A pre-dnsstate installation owned only the legacy 23.05 fragment.
 recorded_dns_paths() {
@@ -405,13 +410,14 @@ activate_dns() {
 
 install_alias() {
 	local addresses prev_lan_dev prev_alias_ip
-	if [ "$http_mode" != alias_ip ]; then remove_alias; return; fi
+	flock -w 10 7 || { error 'Timed out waiting for alias lock'; return 1; }
+	if [ "$http_mode" != alias_ip ]; then remove_alias_unlocked; return; fi
 	if [ -f "$NETSTATE" ] && read -r prev_lan_dev prev_alias_ip < "$NETSTATE" &&
 		[ "$prev_lan_dev" = "$lan_device" ] && [ "$prev_alias_ip" = "$alias_ip" ] &&
 		ip -4 addr show dev "$lan_device" | awk -v cidr="$alias_ip/32" '$1=="inet" && $2==cidr {found=1} END {exit !found}'; then
 		return 0
 	fi
-	remove_alias || return 1
+	remove_alias_unlocked || return 1
 	# Never claim (and later delete) an address already owned by the router.
 	addresses=$(ip -4 addr show) || return 1
 	if printf '%s\n' "$addresses" | awk -v ip="$alias_ip" '$1=="inet" {split($2,a,"/"); if(a[1]==ip) found=1} END {exit !found}'; then
@@ -420,7 +426,7 @@ install_alias() {
 	# Journal first so stop can undo a mount even after abrupt termination.
 	printf '%s %s\n' "$lan_device" "$alias_ip" > "$NETSTATE" || return 1
 	ip addr replace "${alias_ip}/32" dev "$lan_device"
-}
+} 7>/var/lock/xboxdownload-alias.lock
 
 install_network() {
 	install_alias || return 1
@@ -452,6 +458,7 @@ sync_config() { read_and_render sync; }
 
 restore_alias() {
 	local enabled mode configured_ip configured_dev prev_lan_dev prev_alias_ip devices addresses
+	flock -w 10 7 || { error 'Timed out waiting for alias lock'; return 1; }
 	[ -f "$NETSTATE" ] || return 0
 	config_load xboxdownload || return 1
 	config_get_bool enabled main enabled 0
@@ -471,7 +478,7 @@ restore_alias() {
 	addresses=$(ip -4 addr show) || return 1
 	if printf '%s\n' "$addresses" | awk -v ip="$prev_alias_ip" '$1=="inet" {split($2,a,"/"); if(a[1]==ip) found=1} END {exit !found}'; then return 0; fi
 	ip addr replace "$prev_alias_ip/32" dev "$prev_lan_dev"
-}
+} 7>/var/lock/xboxdownload-alias.lock
 
 start_service() {
 	local enabled tz file
