@@ -28,11 +28,13 @@ define Package/xboxdownload
   CATEGORY:=Network
   TITLE:=Xbox and Microsoft Store download accelerator
   # The ip command is supplied by BusyBox, ip-tiny or ip-full on OpenWrt.
-  DEPENDS:=+nftables-json +ca-bundle
+  # Both nftables variants provide the text CLI. util-linux flock supplies -w.
+  DEPENDS:=+nftables +kmod-nft-nat +flock +ca-bundle
 endef
 
 define Package/xboxdownload/conffiles
 /etc/config/xboxdownload
+/etc/xboxdownload/
 endef
 
 define Build/Prepare
@@ -60,11 +62,13 @@ else
 endif
 
 define Package/xboxdownload/install
-	$(INSTALL_DIR) $(1)/usr/bin $(1)/etc/config $(1)/etc/init.d
+	$(INSTALL_DIR) $(1)/usr/bin $(1)/etc/config $(1)/etc/init.d $(1)/etc/hotplug.d/iface $(1)/etc/xboxdownload $(1)/lib/upgrade/keep.d
 	$(INSTALL_DIR) $(1)/usr/libexec/xboxdownload $(1)/usr/share/xboxdownload/ip
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/xboxdownloadd $(1)/usr/bin/
 	$(INSTALL_CONF) ./files/xboxdownload.config $(1)/etc/config/xboxdownload
 	$(INSTALL_BIN) ./files/xboxdownload.init $(1)/etc/init.d/xboxdownload
+	$(INSTALL_DATA) ./files/95-xboxdownload.hotplug $(1)/etc/hotplug.d/iface/95-xboxdownload
+	printf '%s\n' /etc/xboxdownload/ > $(1)/lib/upgrade/keep.d/xboxdownload
 	$(INSTALL_BIN) ./files/xboxdownload-apply-ip $(1)/usr/libexec/xboxdownload/apply-ip
 	$(INSTALL_DATA) $(addprefix $(PKG_BUILD_DIR)/data/IP.,XboxCn1.txt XboxCn2.txt XboxApp.txt Akamai.txt AkamaiV2.txt) $(1)/usr/share/xboxdownload/ip/
 endef

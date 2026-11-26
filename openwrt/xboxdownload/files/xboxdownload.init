@@ -1,14 +1,19 @@
 #!/bin/sh /etc/rc.common
 # rc.common reads the service variables and config_get assigns UCI options by name.
 # shellcheck shell=sh disable=SC1091,SC2034,SC2154,SC3043
-USE_PROCD=1
+# The apply hook runs while the daemon holds its mutation lock. A pure render
+# must also bypass rc.common's procd lock, which a concurrent reload can hold.
+case "$action" in sync_config) USE_PROCD='' ;; *) USE_PROCD=1 ;; esac
+extra_command sync_config 'Render UCI configuration without contacting the daemon'
+extra_command restore_alias 'Restore the active alias after a network interface event'
 START=95
 STOP=15
 
 DAEMON=/usr/bin/xboxdownloadd
 CONFIG=/var/etc/xboxdownload.json
 NETSTATE=/var/run/xboxdownload.netstate
-DNSCONF=/tmp/dnsmasq.d/xboxdownload.conf
+DNSSTATE=/var/run/xboxdownload.dnsstate
+socket_path=/var/run/xboxdownload.sock
 GROUPS_LIST='xbox_cn1 xbox_cn2 xbox_app akamai'
 REDIRECT_HOSTS='assets1.xboxlive.com assets2.xboxlive.com xvcf1.xboxlive.com xvcf2.xboxlive.com d1.xboxlive.com d2.xboxlive.com 5.xb.delivery.microsoft.com assets1.xboxlive.com.edgesuite.net cl-glcb907925.gcdn.co fg.microsoft.map.fastly.net dlassets.xboxlive.com dlassets2.xboxlive.com'
 
@@ -35,6 +40,34 @@ collect_mac() {
 	esac
 }
 
+# Compare binary-equivalent address spellings, including IPv4-mapped IPv6.
+check_upstream() {
+	local addresses
+	addresses=$(ip -o addr show) || { error 'Cannot enumerate router interface addresses'; return 1; }
+	printf '%s\n' "$addresses" | awk -v upstream="$1" -v port="$2" -v bind="$dns_bind" -v listen="$dns_port" -v mode="$dns_mode" '
+	function key(ip,    v4, octet, parts, left, right, n, m, i, hex) {
+		ip=tolower(ip)
+		if (index(ip,".")) {
+			v4=ip; sub(/^.*:/,"",v4); split(v4,octet,".")
+			if (!index(ip,":")) ip="::ffff:" ip
+			sub(/[^:]+$/,sprintf("%x:%x",octet[1]*256+octet[2],octet[3]*256+octet[4]),ip)
+		}
+		split(ip,parts,"::"); n=split(parts[1],left,":"); m=split(parts[2],right,":")
+		for (i=1;i<=n;i++) hex=hex substr("0000" left[i],length(left[i])+1)
+		for (i=n+m;i<8;i++) hex=hex "0000"
+		for (i=1;i<=m;i++) hex=hex substr("0000" right[i],length(right[i])+1)
+		return "x" hex
+	}
+	BEGIN { up=key(upstream); local_bind=key(bind); any4=key("0.0.0.0"); any6=key("::")
+		local_ip=(up==key("::1") || substr(up,1,27)==substr(key("127.0.0.1"),1,27)) }
+	{ for (i=1;i<NF;i++) if ($i=="inet" || $i=="inet6") {
+		split($(i+1),prefix,"/"); if (key(prefix[1])==up) local_ip=1
+	} }
+	END { exit (up==any4 || up==any6 || (mode=="dnsmasq" && port==53 && local_ip) ||
+		(port==listen && (up==local_bind || ((local_bind==any4 || local_bind==any6) && local_ip)))) }
+	' || { error 'upstream_dns loops to a local DNS listener'; return 1; }
+}
+
 load_network_options() {
 	local upstream_ip upstream_port invalid_mac=0
 	config_get dns_mode main dns_mode dnsmasq
@@ -47,12 +80,11 @@ load_network_options() {
 	config_get http_bind main http_bind 0.0.0.0
 	config_get http_port main http_port 18080
 	config_get redirect_ip main redirect_ip
-	config_get socket_path main socket_path /var/run/xboxdownload.sock
 
 	case "$dns_mode" in dnsmasq|manual) ;; *) error 'Invalid dns_mode'; return 1 ;; esac
 	valid_device "$lan_device" || { error 'Invalid lan_device'; return 1; }
 	if ! valid_port "$dns_port" || ! valid_port "$http_port"; then error 'Invalid listener port'; return 1; fi
-	if ! valid_ip ip4addr "$dns_bind" || ! valid_ip ip4addr "$http_bind"; then error 'Invalid listener address'; return 1; fi
+	if ! valid_ip ipaddr "$dns_bind" || ! valid_ip ipaddr "$http_bind"; then error 'Invalid listener address'; return 1; fi
 	[ -z "$redirect_ip" ] || valid_ip ip4addr "$redirect_ip" || { error 'Invalid redirect_ip'; return 1; }
 	[ -z "$alias_ip" ] || valid_ip ip4addr "$alias_ip" || { error 'Invalid alias_ip'; return 1; }
 	case "$http_mode" in
@@ -77,11 +109,7 @@ load_network_options() {
 		*) false ;;
 	esac || { error 'Invalid upstream_dns address'; return 1; }
 	valid_port "$upstream_port" || { error 'Invalid upstream_dns port'; return 1; }
-	if [ "$upstream" = "$dns_bind:$dns_port" ] ||
-		{ [ "$dns_mode" = dnsmasq ] && [ "$upstream_port" = 53 ] &&
-			case "$upstream_ip" in 127.*|0.0.0.0|::1) true ;; *) false ;; esac; }; then
-		error 'upstream_dns loops to a local DNS listener'; return 1
-	fi
+	check_upstream "$upstream_ip" "$upstream_port" || return 1
 	macs=''
 	config_list_foreach main block_ipv6_mac collect_mac
 	[ "$invalid_mac" = 0 ] || { error 'Invalid block_ipv6_mac'; return 1; }
@@ -136,9 +164,10 @@ render_config() (
 	json_close_object
 	json_add_object runtime
 	json_add_string socket_path "$socket_path"
-	add_setting main data_dir string /usr/share/xboxdownload/ip
-	add_setting main cache_dir string /var/lib/xboxdownload
-	add_setting main apply_hook string /usr/libexec/xboxdownload/apply-ip
+	json_add_string data_dir /usr/share/xboxdownload/ip
+	json_add_string cache_dir /var/lib/xboxdownload
+	json_add_string custom_dir /etc/xboxdownload
+	json_add_string apply_hook /usr/libexec/xboxdownload/apply-ip
 	add_setting main log_capacity int 200 || exit 1
 	json_close_object
 	json_add_object groups
@@ -151,6 +180,7 @@ render_config() (
 		add_setting "$group" selected_ipv4 ip4addr '' || exit 1
 		add_setting "$group" selected_ipv6 ip6addr '' || exit 1
 		for key in filter_keyword custom_test_url; do add_setting "$group" "$key" string ''; done
+		if [ "$group" != akamai ]; then add_setting "$group" use_akamai_fallback bool 0; fi
 		json_close_object
 	done
 	json_close_object
@@ -159,7 +189,7 @@ render_config() (
 	add_setting speedtest interval_hours positive 12 || exit 1
 	add_setting speedtest prefer_hour hour 4 || exit 1
 	add_setting speedtest defer_active_minutes int 15 || exit 1
-	add_setting speedtest switch_threshold_pct int 20 || exit 1
+	add_setting speedtest switch_threshold_pct double 20 || exit 1
 	add_setting speedtest min_speed_mbps double 5.0 || exit 1
 	add_setting speedtest prefilter_concurrency positive 24 || exit 1
 	add_setting speedtest prefilter_top_n positive 10 || exit 1
@@ -187,6 +217,32 @@ remove_alias() {
 	fi
 }
 
+# A pre-dnsstate installation owned only the legacy 23.05 fragment.
+recorded_dns_paths() {
+	if [ -f "$DNSSTATE" ]; then cat "$DNSSTATE"
+	elif [ -f /tmp/dnsmasq.d/xboxdownload.conf ]; then printf '%s\n' /tmp/dnsmasq.d/xboxdownload.conf; fi
+}
+
+valid_fragment_path() {
+	case "$1" in *'/../'*|*'/./'*|*'//'*|*[[:cntrl:]]*) return 1 ;; /*/xboxdownload.conf) return 0 ;; *) return 1 ;; esac
+}
+
+remove_fragment() {
+	valid_fragment_path "$1" || { error 'Invalid recorded dnsmasq fragment path'; return 1; }
+	if [ -e "$1" ] || [ -L "$1" ]; then rm -f "$1" || return 1; dns_changed=1; fi
+}
+
+purge_dns_files() {
+	local paths path
+	paths=$(recorded_dns_paths) || return 1
+	while IFS= read -r path; do
+		[ -z "$path" ] || remove_fragment "$path" || return 1
+	done <<PATHS
+$paths
+PATHS
+	rm -f "$DNSSTATE"
+}
+
 restart_dnsmasq() {
 	local objects
 	[ -x /etc/init.d/dnsmasq ] || { error 'Missing dnsmasq init script'; return 1; }
@@ -202,20 +258,21 @@ restart_dnsmasq() {
 		done; then return 0; fi
 	fi
 	# Restore the previously running resolver without our delegation on failure.
-	rm -f "$DNSCONF" && /etc/init.d/dnsmasq restart
+	purge_dns_files && /etc/init.d/dnsmasq restart
 	error 'Could not restart dnsmasq with updated delegation'
 }
 
-remove_dnsmasq() {
-	[ -f "$DNSCONF" ] || return 0
-	rm -f "$DNSCONF" && restart_dnsmasq
+cleanup_dnsmasq() {
+	local dns_changed=0
+	purge_dns_files || return 1
+	[ "$dns_changed" = 0 ] || restart_dnsmasq
 }
 
 cleanup_network() {
 	local result=0
 	nft delete table inet xboxdownload 2>/dev/null || true
 	remove_alias || result=1
-	remove_dnsmasq || result=1
+	cleanup_dnsmasq || result=1
 	return "$result"
 }
 
@@ -238,20 +295,46 @@ NFT
  chain input_v6_block {
   type filter hook input priority filter - 5; policy accept;
   iifname "$lan_device" meta nfproto ipv6 ether saddr { $macs } udp dport 547 drop
-  iifname "$lan_device" ether saddr { $macs } ip6 nexthdr icmpv6 drop
+  iifname "$lan_device" meta nfproto ipv6 ether saddr { $macs } meta l4proto icmpv6 drop
+ }
+ chain forward_v6_block {
+  type filter hook forward priority filter - 5; policy accept;
+  iifname "$lan_device" ether saddr { $macs } meta nfproto ipv6 drop
  }
 NFT
 	fi
 	printf '}\n'
 }
 
+has_selected_ip() {
+	local group="$1" requested="$2" family ipv4 ipv6
+	config_get family "$group" ip_family ipv4
+	config_get ipv4 "$group" selected_ipv4
+	config_get ipv6 "$group" selected_ipv6
+	if [ -n "$ipv4" ] && [ "$family" != ipv6 ] && [ "$requested" != ipv6 ]; then return 0; fi
+	[ -n "$ipv6" ] && [ "$family" != ipv4 ] && [ "$requested" != ipv4 ]
+}
+
+is_delegated() {
+	local group="$1" enabled family fallback akamai
+	config_get_bool enabled "$group" enabled 1
+	[ "$enabled" = 1 ] || return 1
+	config_get family "$group" ip_family ipv4
+	has_selected_ip "$group" "$family" && return 0
+	config_get_bool fallback "$group" use_akamai_fallback 0
+	config_get_bool akamai akamai enabled 0
+	[ "$fallback" = 1 ] && [ "$akamai" = 1 ] && has_selected_ip akamai "$family"
+}
+
 fallback_dnsmasq() {
-	local host hosts group enabled target="$dns_bind"
-	[ "$target" != 0.0.0.0 ] || target=127.0.0.1
+	local host hosts group target="$dns_bind"
+	case "$target" in
+		0.0.0.0) target=127.0.0.1 ;;
+		*:*) if [ -z "$(printf %s "$target" | tr -d '0:')" ]; then target=::1; fi ;;
+	esac
 	hosts="$REDIRECT_HOSTS assets-srvs.xboxlive.com assets-srvs-net.trafficmanager.net assets-srvs-apac.delivery.microsoft.com assets-srvs-na.delivery.microsoft.com"
 	for group in xbox_cn1 xbox_cn2 xbox_app; do
-		config_get_bool enabled "$group" enabled 1
-		[ "$enabled" = 1 ] || continue
+		is_delegated "$group" || continue
 		case "$group" in
 			xbox_cn1) hosts="$hosts assets1.xboxlive.cn assets2.xboxlive.cn d1.xboxlive.cn d2.xboxlive.cn" ;;
 			xbox_cn2) hosts="$hosts dlassets.xboxlive.cn dlassets2.xboxlive.cn" ;;
@@ -261,29 +344,63 @@ fallback_dnsmasq() {
 	for host in $hosts; do printf 'server=/%s/%s#%s\n' "$host" "$target" "$dns_port" || return 1; done
 }
 
-install_dnsmasq() (
-	local tmp host
-	mkdir -p /tmp/dnsmasq.d || exit 1
-	# A dotfile is ignored by dnsmasq while the new fragment is being written.
-	tmp=$(mktemp /tmp/dnsmasq.d/.xboxdownload.XXXXXX) || exit 1
+dns_fragment_paths() {
+	local dirs file dir i=0
+	dirs=$(for file in /var/etc/dnsmasq.conf.*; do
+		[ -f "$file" ] || continue
+		awk '/^[[:space:]]*conf-dir=/ {sub(/^[[:space:]]*conf-dir=/,""); sub(/,.*/,""); if (length($0)) print}' "$file" || exit 1
+	done) || return 1
+	if [ -z "$dirs" ]; then
+		dirs=$(while uci -q get "dhcp.@dnsmasq[$i]" >/dev/null; do
+			dir=$(uci -q get "dhcp.@dnsmasq[$i].confdir")
+			[ -z "$dir" ] || printf '%s\n' "${dir%%,*}"
+			i=$((i + 1))
+		done)
+	fi
+	printf '%s\n' "${dirs:-/tmp/dnsmasq.d}" | awk '{sub(/\/+$/,""); p=$0 "/xboxdownload.conf"; if (!seen[p]++) print p}'
+}
+
+write_fragment() (
+	local dest="$1" tmp dir="${1%/*}"
+	mkdir -p "$dir" || exit 1
+	# Dotfiles in conf-dir are ignored by dnsmasq while they are being written.
+	tmp=$(mktemp "$dir/.xboxdownload.XXXXXX") || exit 1
 	trap 'rm -f "$tmp"' EXIT
-	"$DAEMON" print-dnsmasq --config "$CONFIG" > "$tmp" || fallback_dnsmasq > "$tmp" || exit 1
-	# Stock dnsmasq rejects private A answers from an upstream, even loopback.
-	# Only the 12 locally redirected names need an exception for a LAN target.
+	cat "$2" > "$tmp" && mv -f "$tmp" "$dest"
+)
+
+install_dnsmasq() (
+	local work host path dns_changed=0
+	work=$(mktemp -d /var/run/xboxdownload-dns.XXXXXX) || exit 1
+	trap 'rm -rf "$work"' EXIT
+	dns_fragment_paths > "$work/wanted" && recorded_dns_paths > "$work/old" || exit 1
+	while IFS= read -r path; do
+		if ! valid_fragment_path "$path" || { [ -e "$path" ] && [ ! -f "$path" ]; }; then
+			error 'Invalid dnsmasq fragment destination'; exit 1
+		fi
+	done < "$work/wanted"
+	"$DAEMON" print-dnsmasq --config "$CONFIG" > "$work/fragment" || fallback_dnsmasq > "$work/fragment" || exit 1
 	case "$redirect_ip" in
 		10.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|192.168.*|127.*|169.254.*)
-			for host in $REDIRECT_HOSTS; do printf 'rebind-domain-ok=/%s/\n' "$host" >> "$tmp" || exit 1; done ;;
+			for host in $REDIRECT_HOSTS; do printf 'rebind-domain-ok=/%s/\n' "$host" >> "$work/fragment" || exit 1; done ;;
 	esac
-	if [ -f "$DNSCONF" ] && cmp -s "$tmp" "$DNSCONF"; then
-		# A direct UCI edit can change answers without changing any delegation.
-		if [ "${refresh_cache:-0}" = 1 ]; then killall -HUP dnsmasq 2>/dev/null || true; fi
-		exit 0
-	fi
-	mv -f "$tmp" "$DNSCONF" && restart_dnsmasq
+	# Journal every old and new destination before changing the first instance.
+	sort -u "$work/old" "$work/wanted" > "$work/journal" && mv -f "$work/journal" "$DNSSTATE" || exit 1
+	while IFS= read -r path; do
+		if [ -f "$path" ] && cmp -s "$work/fragment" "$path"; then continue; fi
+		write_fragment "$path" "$work/fragment" || exit 1
+		dns_changed=1
+	done < "$work/wanted"
+	while IFS= read -r path; do
+		grep -Fxq -e "$path" "$work/wanted" || remove_fragment "$path" || exit 1
+	done < "$work/old"
+	mv -f "$work/wanted" "$DNSSTATE" || exit 1
+	if [ "$dns_changed" = 1 ]; then restart_dnsmasq
+	elif [ "${refresh_cache:-0}" = 1 ]; then killall -HUP dnsmasq 2>/dev/null || true; fi
 )
 
 activate_dns() {
-	if [ "$dns_mode" = dnsmasq ]; then install_dnsmasq; else remove_dnsmasq; fi
+	if [ "$dns_mode" = dnsmasq ]; then install_dnsmasq; else cleanup_dnsmasq; fi
 }
 
 install_alias() {
@@ -321,18 +438,56 @@ setup_network() {
 	error 'Network setup failed, rolled back service changes'
 }
 
+# Take the snapshot under the same lock for every writer. Release it before
+# procd registration or daemon RPC, so the apply hook can render concurrently.
+read_and_render() {
+	flock -w 10 8 || { error 'Timed out waiting for config renderer'; return 1; }
+	config_load xboxdownload || return 1
+	config_get_bool enabled main enabled 0
+	if [ "$enabled" = 0 ] && [ "$1" != sync ]; then return 0; fi
+	load_network_options && render_config
+} 8>/var/lock/xboxdownload-render.lock
+
+sync_config() { read_and_render sync; }
+
+restore_alias() {
+	local enabled mode configured_ip configured_dev prev_lan_dev prev_alias_ip devices addresses
+	[ -f "$NETSTATE" ] || return 0
+	config_load xboxdownload || return 1
+	config_get_bool enabled main enabled 0
+	config_get mode main http_mode alias_ip
+	config_get configured_dev main lan_device br-lan
+	config_get configured_ip main alias_ip
+	[ "$enabled:$mode" = 1:alias_ip ] || return 0
+	read -r prev_lan_dev prev_alias_ip < "$NETSTATE" || return 0
+	[ "$prev_lan_dev" = "$configured_dev" ] && [ "$prev_alias_ip" = "$configured_ip" ] || return 0
+	valid_device "$prev_lan_dev" && valid_ip ip4addr "$prev_alias_ip" || return 1
+	if [ "$1" != "$prev_lan_dev" ]; then
+		valid_device "$2" || return 0
+		devices=$(ubus call "network.interface.$2" status | jsonfilter -e '@.l3_device' -e '@.device')
+		printf '%s\n' "$devices" | grep -Fxq -e "$prev_lan_dev" || return 0
+	fi
+	# Refuse to replace any address that is already in use, including a LAN /24.
+	addresses=$(ip -4 addr show) || return 1
+	if printf '%s\n' "$addresses" | awk -v ip="$prev_alias_ip" '$1=="inet" {split($2,a,"/"); if(a[1]==ip) found=1} END {exit !found}'; then return 0; fi
+	ip addr replace "$prev_alias_ip/32" dev "$prev_lan_dev"
+}
+
 start_service() {
-	local enabled
+	local enabled tz file
 	start_status=1
 	wait_for_socket=0
-	config_load xboxdownload || { cleanup_network; return 1; }
-	config_get_bool enabled main enabled 0
+	read_and_render start || { cleanup_network; return 1; }
 	if [ "$enabled" = 0 ]; then cleanup_network && start_status=0; return "$start_status"; fi
-	if ! load_network_options || ! render_config; then cleanup_network; return 1; fi
 	setup_network || return 1
 	procd_open_instance
 	procd_set_param command "$DAEMON" run --config "$CONFIG"
-	procd_set_param respawn
+	procd_set_param respawn 3600 5 5
+	for file in /tmp/TZ /etc/TZ; do
+		[ -r "$file" ] || continue
+		tz=$(awk 'NF {print; exit}' "$file")
+		if [ -n "$tz" ]; then procd_set_param env "TZ=$tz"; break; fi
+	done
 	procd_set_param stdout 1
 	procd_set_param stderr 1
 	procd_set_param file /etc/config/xboxdownload
@@ -365,22 +520,19 @@ service_triggers() { procd_add_reload_trigger xboxdownload; }
 
 dns_answers_config() {
 	jsonfilter -i "$CONFIG" -e '@.dns.upstream' -e '@.dns.ttl' -e '@.http.redirect_ip' \
-		-e '@.groups[*].enabled' -e '@.groups[*].ip_family' -e '@.groups[*].selected_ipv4' -e '@.groups[*].selected_ipv6'
+		-e '@.groups[*].enabled' -e '@.groups[*].ip_family' -e '@.groups[*].use_akamai_fallback' -e '@.groups[*].selected_ipv4' -e '@.groups[*].selected_ipv6'
 }
 
 reload_service() {
-	local enabled old_socket old_answers refresh_cache=0
-	config_load xboxdownload || return 1
-	config_get_bool enabled main enabled 0
-	if [ "$enabled" = 0 ]; then stop; return; fi
+	local enabled old_answers refresh_cache=0
 	if ! service_running; then start; return; fi
-	old_socket=$(jsonfilter -i "$CONFIG" -e '@.runtime.socket_path') || old_socket=''
 	old_answers=$(dns_answers_config) || old_answers=''
-	load_network_options && render_config || return 1
+	read_and_render reload || return 1
+	if [ "$enabled" = 0 ]; then stop; return; fi
 	[ "$old_answers" = "$(dns_answers_config)" ] || refresh_cache=1
-	setup_network || return 1
+	setup_network || { stop; return 1; }
 	# The daemon can atomically rebind its listeners. Address conflicts (e.g.
 	# a wildcard replacing a specific bind) can require closing the old socket.
-	if ! "$DAEMON" ctl --socket "$old_socket" --method reload --params '{}'; then procd_kill xboxdownload && start; return; fi
+	if ! "$DAEMON" ctl --socket "$socket_path" --method reload --params '{}'; then procd_kill xboxdownload && start; return; fi
 	activate_dns || { stop; return 1; }
 }

@@ -114,7 +114,7 @@ jobs:
           cd "$SDK"
           # These are the feeds and release revisions shipped with the SDK.
           ./scripts/feeds update base packages luci
-          ./scripts/feeds install ca-bundle nftables-json luci-base
+          ./scripts/feeds install ca-bundle nftables-json kmod-nft-nat flock luci-base
           ln -s "$GITHUB_WORKSPACE/openwrt/xboxdownload" package/xboxdownload
           echo 'CONFIG_PACKAGE_xboxdownload=m' > .config
           targets=(package/xboxdownload/compile)

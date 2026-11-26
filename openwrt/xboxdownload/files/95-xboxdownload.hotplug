@@ -1,0 +1,8 @@
+#!/bin/sh
+# Sourced by hotplug-call. rc.common serializes the restore with stop/reload.
+case "$ACTION" in
+	ifup|ifupdate)
+		if [ -f /var/run/xboxdownload.netstate ]; then
+			/etc/init.d/xboxdownload restore_alias "${DEVICE:-}" "${INTERFACE:-}"
+		fi ;;
+esac

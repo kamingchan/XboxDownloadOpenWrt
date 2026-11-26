@@ -35,6 +35,7 @@ jobs:
       - name: Check OpenWrt shell scripts
         run: |
           scripts=(openwrt/xboxdownload/files/xboxdownload.init
+                   openwrt/xboxdownload/files/95-xboxdownload.hotplug
                    openwrt/xboxdownload/files/xboxdownload-apply-ip
                    openwrt/luci-app-xboxdownload/root/usr/libexec/rpcd/luci.xboxdownload)
           for script in "${scripts[@]}"; do sh -n "$script"; done

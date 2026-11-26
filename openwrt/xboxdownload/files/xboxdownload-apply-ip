@@ -7,11 +7,34 @@ case "$1" in xbox_cn1|xbox_cn2|xbox_app|akamai) ;; *) exit 2 ;; esac
 
 # Serialize winners and discard private UCI deltas if a write fails midway.
 exec 9>/var/lock/xboxdownload-apply.lock || exit 1
-flock 9 || exit 1
+flock -w 10 9 || exit 1
 transaction=$(mktemp -d /tmp/xboxdownload-uci.XXXXXX) || exit 1
 trap 'rm -rf "$transaction"' EXIT
 trap 'exit 1' HUP INT TERM
-uci -t "$transaction" set "xboxdownload.$1.selected_ipv4=$2" &&
-	uci -t "$transaction" set "xboxdownload.$1.selected_ipv6=$3" &&
-	uci -t "$transaction" commit xboxdownload || exit 1
+section="xboxdownload.$1"
+old4=$(uci -q -t "$transaction" get "$section.selected_ipv4") || old4=''
+old6=$(uci -q -t "$transaction" get "$section.selected_ipv6") || old6=''
+
+persist() {
+	uci -t "$transaction" set "$section.selected_ipv4=$1" &&
+		uci -t "$transaction" set "$section.selected_ipv6=$2" &&
+		uci -t "$transaction" commit xboxdownload
+}
+# If interrupted between the two writes, restore the old pair before the daemon
+# rolls its in-memory winner back. The JSON renderer itself publishes by rename.
+trap 'persist "$old4" "$old6" && /etc/init.d/xboxdownload sync_config; exit 1' HUP INT TERM
+persist "$2" "$3" || exit 1
+if ! /etc/init.d/xboxdownload sync_config; then
+	# The daemon restores its in-memory winner when its hook reports failure.
+	persist "$old4" "$old6" || logger -t xboxdownload -p daemon.err 'Failed to restore previous UCI selection'
+	exit 1
+fi
+trap '' HUP INT TERM
 killall -HUP dnsmasq 2>/dev/null || true
+# Changing address families or gaining/losing an address may change delegation.
+# Notify procd asynchronously only for a live service. Routine swaps need just HUP.
+if [ "${old4:+4}${old6:+6}" != "${2:+4}${3:+6}" ] && [ -S /var/run/xboxdownload.sock ]; then
+	ubus call service event '{"type":"config.change","data":{"package":"xboxdownload"}}' >/dev/null ||
+		logger -t xboxdownload -p daemon.warn 'Could not notify procd of the new selection'
+fi
+exit 0
