@@ -15,7 +15,9 @@ function section(title, content) { return E('section', {}, [ E('h3', {}, xb.text
 var names = {
 	dns_redirect_a: _('Download DNS (A)'), dns_redirect_aaaa: _('Download DNS (AAAA)'),
 	dns_srv_block: _('SRV fallback suppression'), http_redirect: _('Xbox content redirect'),
-	http_dlassets_redirect: _('Legacy content redirect')
+	http_dlassets_redirect: _('Legacy content redirect'),
+	dnsmasq_redirect_a: _('Router DNS redirect (dnsmasq port 53)'),
+	http_alias_redirect: _('LAN alias HTTP redirect (DNAT port 80)')
 };
 
 return view.extend({

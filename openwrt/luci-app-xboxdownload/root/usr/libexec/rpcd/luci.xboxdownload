@@ -94,19 +94,23 @@ case "$method" in
 		;;
 	speedtest_start|list_ips)
 		group_arg
-		field ip_family string ipv4
-		case "$value" in ipv4|ipv6|dual) family=$value ;; *) error 'Invalid address family' ;; esac
+		field ip_family string ''
+		family=$value
+		if [ -n "$actual" ]; then
+			case "$family" in ipv4|ipv6|dual) ;; *) error 'Invalid address family' ;; esac
+		fi
 		field filter_keyword string ''
 		[ "${#value}" -le 256 ] || error 'Filter is too long'
 		keyword=$value
+		keyword_type=$actual
 		if [ "$method" = speedtest_start ]; then
 			field auto_apply boolean 0
 			auto_apply=$value
 		fi
 		json_init
 		json_add_string group "$group"
-		json_add_string ip_family "$family"
-		json_add_string filter_keyword "$keyword"
+		[ -z "$family" ] || json_add_string ip_family "$family"
+		[ -z "$keyword_type" ] || json_add_string filter_keyword "$keyword"
 		[ "$method" != speedtest_start ] || json_add_boolean auto_apply "$auto_apply"
 		;;
 	apply_ip)
@@ -128,6 +132,8 @@ case "$method" in
 		custom_text=$value
 		[ "${#custom_text}" -le 49152 ] || error 'List is too long'
 		while IFS= read -r line; do
+			line=${line#"${line%%[![:space:]]*}"}
+			line=${line%"${line##*[![:space:]]}"}
 			address=${line%%[[:space:]]*}
 			[ -z "$line" ] || valid_ip ipaddr "$address" || error 'Invalid address in custom list'
 		done <<EOF
@@ -178,7 +184,7 @@ offline() {
 	exit 0
 }
 
-SOCKET=$(uci -q get xboxdownload.main.socket_path) || SOCKET=/var/run/xboxdownload.sock
+SOCKET=/var/run/xboxdownload.sock
 [ -S "$SOCKET" ] || offline
 params=$(json_dump)
 reply=$(xboxdownloadd ctl --socket "$SOCKET" --method "$method" --params "$params")
@@ -192,22 +198,4 @@ if [ "$ok" = false ]; then
 fi
 [ "$rc" -eq 0 ] && [ "$ok" = true ] || error 'Control request failed'
 data=$(printf '%s' "$reply" | jsonfilter -e '@.data') || error 'Invalid control response'
-if [ "$method" = list_ips ]; then
-	# The socket returns merged candidates. Editing needs the original custom
-	# text, including notes and blank lines, without a general file-read ACL.
-	cache=$(jsonfilter -i /var/etc/xboxdownload.json -e '@.runtime.cache_dir') || error 'IP cache unavailable'
-	file="$cache/custom.$group.txt"
-	body=''
-	if [ -f "$file" ]; then
-		[ "$(wc -c < "$file")" -le 49152 ] || error 'List is too long'
-		body=$(cat "$file" && printf '.') || error 'IP cache unavailable'
-		body=${body%.}
-	fi
-	json_init
-	json_add_string custom_text "$body"
-	custom_json=$(json_dump)
-	# Both fragments are JSON objects encoded by jsonfilter and jshn.
-	printf '%s,%s\n' "${custom_json%\}}" "${data#\{}"
-else
-	printf '%s\n' "$data"
-fi
+printf '%s\n' "$data"

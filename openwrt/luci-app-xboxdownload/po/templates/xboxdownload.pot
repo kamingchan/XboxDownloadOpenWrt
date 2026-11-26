@@ -37,9 +37,6 @@ msgstr ""
 msgid "Apply"
 msgstr ""
 
-msgid "Apply-IP hook"
-msgstr ""
-
 msgid "Automatic dnsmasq forwarding"
 msgstr ""
 
@@ -59,9 +56,6 @@ msgid "Basic settings and network"
 msgstr ""
 
 msgid "Blocked SRV queries"
-msgstr ""
-
-msgid "Bundled IP directory"
 msgstr ""
 
 msgid "CDN groups"
@@ -116,9 +110,6 @@ msgid "Concurrent downloads"
 msgstr ""
 
 msgid "Control request failed"
-msgstr ""
-
-msgid "Control socket path"
 msgstr ""
 
 msgid "Copied."
@@ -184,7 +175,7 @@ msgstr ""
 msgid "Disabled"
 msgstr ""
 
-msgid "Download AAAA records are already filtered in IPv4 mode. Leave this empty unless a client persistently uses cached IPv6 routes. The fallback restricts DHCPv6 and ICMPv6 for the listed clients."
+msgid "Download AAAA records are already filtered in IPv4 mode. Leave this empty unless a client persistently uses cached IPv6 routes. The fallback restricts DHCPv6 and ICMPv6 and blocks forwarded IPv6 traffic for the listed clients."
 msgstr ""
 
 msgid "Download DNS (A)"
@@ -292,12 +283,6 @@ msgstr ""
 msgid "IP address"
 msgstr ""
 
-msgid "IP cache directory"
-msgstr ""
-
-msgid "IP cache unavailable"
-msgstr ""
-
 msgid "IP list mirror"
 msgstr ""
 
@@ -350,6 +335,9 @@ msgid "Japan"
 msgstr ""
 
 msgid "Kept current node"
+msgstr ""
+
+msgid "LAN alias HTTP redirect (DNAT port 80)"
 msgstr ""
 
 msgid "LAN alias IP"
@@ -487,6 +475,9 @@ msgstr ""
 msgid "Results"
 msgstr ""
 
+msgid "Router DNS redirect (dnsmasq port 53)"
+msgstr ""
+
 msgid "Run end-to-end check"
 msgstr ""
 
@@ -586,10 +577,16 @@ msgstr ""
 msgid "Uptime"
 msgstr ""
 
+msgid "Use Akamai fallback"
+msgstr ""
+
 msgid "Use an independent upstream resolver. A loop back to the router DNS listener will prevent startup."
 msgstr ""
 
 msgid "Version"
+msgstr ""
+
+msgid "When this group has no selected address, use a compatible address from the enabled Akamai group."
 msgstr ""
 
 msgid "Xbox Download"

@@ -2,6 +2,7 @@
 'require baseclass';
 'require rpc';
 'require ui';
+'require validation';
 
 function method(name, params) {
 	return rpc.declare({ object: 'luci.xboxdownload', method: name, params: params || [], reject: true,
@@ -18,10 +19,10 @@ function method(name, params) {
 
 var groups = { xbox_cn1: 'Xbox CN1', xbox_cn2: 'Xbox CN2', xbox_app: 'Xbox App', akamai: 'Akamai' };
 var families = { ipv4: 'IPv4', ipv6: 'IPv6', dual: _('Dual stack') };
-var domains = [ 'assets1.xboxlive.com', 'assets2.xboxlive.com', 'xvcf1.xboxlive.com', 'xvcf2.xboxlive.com',
+var redirectDomains = [ 'assets1.xboxlive.com', 'assets2.xboxlive.com', 'xvcf1.xboxlive.com', 'xvcf2.xboxlive.com',
 	'd1.xboxlive.com', 'd2.xboxlive.com', '5.xb.delivery.microsoft.com', 'assets1.xboxlive.com.edgesuite.net',
-	'cl-glcb907925.gcdn.co', 'fg.microsoft.map.fastly.net', 'dlassets.xboxlive.com', 'dlassets2.xboxlive.com',
-	'assets-srvs.xboxlive.com', 'assets-srvs-net.trafficmanager.net', 'assets-srvs-apac.delivery.microsoft.com',
+	'cl-glcb907925.gcdn.co', 'fg.microsoft.map.fastly.net', 'dlassets.xboxlive.com', 'dlassets2.xboxlive.com' ];
+var srvDomains = [ 'assets-srvs.xboxlive.com', 'assets-srvs-net.trafficmanager.net', 'assets-srvs-apac.delivery.microsoft.com',
 	'assets-srvs-na.delivery.microsoft.com' ];
 var cdn = { xbox_cn1: [ 'assets1.xboxlive.cn', 'assets2.xboxlive.cn', 'd1.xboxlive.cn', 'd2.xboxlive.cn' ],
 	xbox_cn2: [ 'dlassets.xboxlive.cn', 'dlassets2.xboxlive.cn' ],
@@ -56,9 +57,22 @@ function table(headers, rows, empty) {
 	]);
 }
 
-function rules(bind, port, enabled) {
-	var hosts = domains.slice();
-	Object.keys(cdn).forEach(function(id) { if (enabled[id]) hosts = hosts.concat(cdn[id]); });
+function hasAddress(group, family) {
+	if (!group || group.enabled !== '1' || (group.ip_family !== 'dual' && group.ip_family !== family)) return false;
+	return family === 'ipv4' ? validation.parseIPv4(group.selected_ipv4 || '') : validation.parseIPv6(group.selected_ipv6 || '');
+}
+
+function rules(bind, port, groups) {
+	var hosts = redirectDomains.concat(srvDomains);
+	Object.keys(cdn).forEach(function(id) {
+		var group = groups[id];
+		if (!group || group.enabled !== '1') return;
+		var selected = [ 'ipv4', 'ipv6' ].some(function(family) {
+			if (group.ip_family !== 'dual' && group.ip_family !== family) return false;
+			return hasAddress(group, family) || group.use_akamai_fallback === '1' && hasAddress(groups.akamai, family);
+		});
+		if (selected) hosts = hosts.concat(cdn[id]);
+	});
 	if (bind === '0.0.0.0') bind = '127.0.0.1';
 	if (bind === '::') bind = '::1';
 	var endpoint = (bind.indexOf(':') >= 0 ? '[' + bind + ']' : bind) + ':' + port;
@@ -67,7 +81,8 @@ function rules(bind, port, enabled) {
 			return 'nameserver /' + h + '/xboxdownload';
 		})).join('\n'),
 		AdGuardHome: hosts.map(function(h) { return '[/' + h + '/]' + endpoint; }).join('\n'),
-		dnsmasq: hosts.map(function(h) { return 'server=/' + h + '/' + bind + '#' + port; }).join('\n')
+		dnsmasq: hosts.map(function(h) { return 'server=/' + h + '/' + bind + '#' + port; })
+			.concat(redirectDomains.map(function(h) { return 'rebind-domain-ok=/' + h + '/'; })).join('\n')
 	};
 }
 

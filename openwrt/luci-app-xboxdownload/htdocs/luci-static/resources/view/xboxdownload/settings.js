@@ -47,7 +47,7 @@ return view.extend({
 		main(form.Value, 'upstream_dns', _('Fallback DNS server'), 'ipaddrport(1)', '223.5.5.5:53',
 			_('Use an independent upstream resolver. A loop back to the router DNS listener will prevent startup.'));
 		main(form.Value, 'dns_ttl', _('DNS TTL (seconds)'), 'uinteger', '60');
-		var blocks = {}, groupFlags = {};
+		var blocks = {}, groupSections = {};
 		var snippets = main(form.DummyValue, '_manual', _('Manual DNS rules'));
 		snippets.depends('dns_mode', 'manual');
 		snippets.renderWidget = function() {
@@ -81,19 +81,19 @@ return view.extend({
 		main(form.Value, 'http_bind', _('HTTP bind address'), 'ip4addr(1)', '0.0.0.0').depends('http_mode', 'custom_port');
 		main(form.Value, 'redirect_ip', _('Redirect target IPv4'), 'ip4addr(1)', null,
 			_('Defaults to the LAN address. Clients must reach the redirect listener on port 80.')).depends('http_mode', 'custom_port');
-		main(form.Value, 'socket_path', _('Control socket path'), null, '/var/run/xboxdownload.sock');
-		main(form.Value, 'data_dir', _('Bundled IP directory'), null, '/usr/share/xboxdownload/ip');
-		main(form.Value, 'cache_dir', _('IP cache directory'), null, '/var/lib/xboxdownload');
-		main(form.Value, 'apply_hook', _('Apply-IP hook'), null, '/usr/libexec/xboxdownload/apply-ip');
 		main(form.Value, 'log_capacity', _('Redirect log capacity'), 'uinteger', '200');
 		Object.keys(xb.groups).forEach(function(id) {
 			var group = s.taboption('groups', form.SectionValue, '_group_' + id, form.NamedSection, id, 'group', xb.groups[id]).subsection;
-			groupFlags[id] = setting(group.option(form.Flag, 'enabled', _('Enable group')), null, id === 'akamai' ? '0' : '1');
+			groupSections[id] = group;
+			setting(group.option(form.Flag, 'enabled', _('Enable group')), null, id === 'akamai' ? '0' : '1');
 			choices(setting(group.option(form.ListValue, 'ip_family', _('Address family')), null, 'ipv4'), xb.families);
 			setting(group.option(form.Value, 'selected_ipv4', _('Selected IPv4')), 'ip4addr(1)');
 			setting(group.option(form.Value, 'selected_ipv6', _('Selected IPv6')), 'ip6addr(1)');
 			group.option(form.Value, 'filter_keyword', _('Filter keyword'));
 			group.option(form.Value, 'custom_test_url', _('Custom test URL')).validate = webURL;
+			if (id !== 'akamai')
+				setting(group.option(form.Flag, 'use_akamai_fallback', _('Use Akamai fallback'),
+					_('When this group has no selected address, use a compatible address from the enabled Akamai group.')), null, '0');
 		});
 		var speed = s.taboption('schedule', form.SectionValue, '_speed', form.NamedSection, 'speedtest', 'speedtest').subsection;
 		function test(type, key, label, datatype, def, help) {
@@ -118,12 +118,12 @@ return view.extend({
 		var base = test(form.Value, 'ip_sync_custom_base', _('Mirror base URL'));
 		base.depends('ip_sync_mirror', 'custom'); base.rmempty = false; base.validate = webURL;
 		var mac = s.taboption('ipv6', form.DynamicList, 'block_ipv6_mac', _('Fallback client MAC addresses'),
-			_('Download AAAA records are already filtered in IPv4 mode. Leave this empty unless a client persistently uses cached IPv6 routes. The fallback restricts DHCPv6 and ICMPv6 for the listed clients.'));
+			_('Download AAAA records are already filtered in IPv4 mode. Leave this empty unless a client persistently uses cached IPv6 routes. The fallback restricts DHCPv6 and ICMPv6 and blocks forwarded IPv6 traffic for the listed clients.'));
 		mac.datatype = 'macaddr';
 		function updateRules() {
-			var enabled = {};
-			Object.keys(groupFlags).forEach(function(id) { enabled[id] = groupFlags[id].formvalue(id) === '1'; });
-			var rules = xb.rules(bind.formvalue('main') || '127.0.0.1', port.formvalue('main') || '5353', enabled);
+			var groups = {};
+			Object.keys(groupSections).forEach(function(id) { groups[id] = groupSections[id].formvalue(id); });
+			var rules = xb.rules(bind.formvalue('main') || '127.0.0.1', port.formvalue('main') || '5353', groups);
 			Object.keys(blocks).forEach(function(name) { blocks[name].value = rules[name]; });
 		}
 		return m.render().then(function(node) {

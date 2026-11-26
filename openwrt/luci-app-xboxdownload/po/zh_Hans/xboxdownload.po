@@ -37,9 +37,6 @@ msgstr "已将 %s 应用到 %s。"
 msgid "Apply"
 msgstr "一键应用"
 
-msgid "Apply-IP hook"
-msgstr "应用节点时执行的脚本"
-
 msgid "Automatic dnsmasq forwarding"
 msgstr "由 dnsmasq 自动分流"
 
@@ -60,9 +57,6 @@ msgstr "基础与网络"
 
 msgid "Blocked SRV queries"
 msgstr "已拦截的 SRV 查询"
-
-msgid "Bundled IP directory"
-msgstr "内置 IP 库目录"
 
 msgid "CDN groups"
 msgstr "CDN 分组"
@@ -117,9 +111,6 @@ msgstr "下载并发数"
 
 msgid "Control request failed"
 msgstr "控制请求失败"
-
-msgid "Control socket path"
-msgstr "控制套接字路径"
 
 msgid "Copied."
 msgstr "已复制。"
@@ -184,8 +175,8 @@ msgstr "详情"
 msgid "Disabled"
 msgstr "已关闭"
 
-msgid "Download AAAA records are already filtered in IPv4 mode. Leave this empty unless a client persistently uses cached IPv6 routes. The fallback restricts DHCPv6 and ICMPv6 for the listed clients."
-msgstr "IPv4 模式已在 DNS 层过滤下载域名的 AAAA 记录，通常留空即可。仅当客户端持续使用缓存的 IPv6 路径时再填写；兜底规则会限制所列设备的 DHCPv6 与 ICMPv6。"
+msgid "Download AAAA records are already filtered in IPv4 mode. Leave this empty unless a client persistently uses cached IPv6 routes. The fallback restricts DHCPv6 and ICMPv6 and blocks forwarded IPv6 traffic for the listed clients."
+msgstr "IPv4 模式已在 DNS 层过滤下载域名的 AAAA 记录，通常留空即可。仅当客户端持续使用缓存的 IPv6 路径时再填写；兜底规则会限制所列设备的 DHCPv6 与 ICMPv6，并阻止其 IPv6 流量转发。"
 
 msgid "Download DNS (A)"
 msgstr "下载域名 A 记录"
@@ -292,12 +283,6 @@ msgstr "香港"
 msgid "IP address"
 msgstr "IP 地址"
 
-msgid "IP cache directory"
-msgstr "IP 缓存目录"
-
-msgid "IP cache unavailable"
-msgstr "无法读取 IP 缓存"
-
 msgid "IP list mirror"
 msgstr "IP 库镜像"
 
@@ -351,6 +336,9 @@ msgstr "日本"
 
 msgid "Kept current node"
 msgstr "已保留当前节点"
+
+msgid "LAN alias HTTP redirect (DNAT port 80)"
+msgstr "LAN 辅助 IP 重定向（DNAT 80 端口）"
 
 msgid "LAN alias IP"
 msgstr "LAN 辅助 IP"
@@ -487,6 +475,9 @@ msgstr "结果"
 msgid "Results"
 msgstr "测速结果"
 
+msgid "Router DNS redirect (dnsmasq port 53)"
+msgstr "路由器 DNS 重定向解析（dnsmasq 53 端口）"
+
 msgid "Run end-to-end check"
 msgstr "一键端到端自检"
 
@@ -586,11 +577,17 @@ msgstr "未知方法"
 msgid "Uptime"
 msgstr "运行时长"
 
+msgid "Use Akamai fallback"
+msgstr "使用 Akamai 备用节点"
+
 msgid "Use an independent upstream resolver. A loop back to the router DNS listener will prevent startup."
 msgstr "请使用独立的上游 DNS。指向本机 DNS 入口会产生循环，导致服务无法启动。"
 
 msgid "Version"
 msgstr "版本"
+
+msgid "When this group has no selected address, use a compatible address from the enabled Akamai group."
+msgstr "当本组没有选定可用地址时，使用已启用的 Akamai 分组中与本组地址族匹配的优选 IP。"
 
 msgid "Xbox Download"
 msgstr "Xbox 下载"
