@@ -7,3 +7,5 @@ PKG_LICENSE:=GPL-3.0-or-later
 PKG_RELEASE:=1
 
 include $(if $(wildcard $(TOPDIR)/feeds/luci/luci.mk),$(TOPDIR)/feeds/luci/luci.mk,../../luci.mk)
+
+# call BuildPackage - OpenWrt buildroot signature

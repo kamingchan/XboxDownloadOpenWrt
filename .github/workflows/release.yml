@@ -104,7 +104,7 @@ jobs:
           else
             "$ar" rcs "$compat/libunwind.a"
           fi
-          export RUSTFLAGS="-C target-feature=+crt-static -C link-self-contained=no -L native=$compat"
+          export RUSTFLAGS="-C target-feature=+crt-static -C link-self-contained=no -C relocation-model=static -L native=$compat"
           args=()
           if [[ "$PKG_ARCH" == mipsel_24kc ]]; then args=('-Zbuild-std=std,panic_abort'); fi
           cargo build --locked --release --target "$RUST_TARGET" "${args[@]}"
@@ -129,6 +129,7 @@ jobs:
           if [[ "$PKG_ARCH" == aarch64_generic ]]; then
             cp -R "$GITHUB_WORKSPACE/openwrt/luci-app-xboxdownload" package/
             sed -i "/^LUCI_TITLE/i PKG_VERSION:=$VERSION\nPKG_PO_VERSION:=$VERSION" package/luci-app-xboxdownload/Makefile
+            grep -q 'BuildPackage' package/luci-app-xboxdownload/Makefile || printf '\n# call BuildPackage - OpenWrt buildroot signature\n' >> package/luci-app-xboxdownload/Makefile
             {
               echo 'CONFIG_PACKAGE_luci-app-xboxdownload=m'
               echo 'CONFIG_PACKAGE_luci-i18n-xboxdownload-zh-cn=m'

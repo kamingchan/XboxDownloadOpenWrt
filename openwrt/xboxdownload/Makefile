@@ -57,7 +57,7 @@ else
 	cd $(PKG_BUILD_DIR) && \
 		$(RUST_LINKER_ENV)="$(TARGET_CROSS)gcc" CC_$(RUST_ENV_TARGET)="$(TARGET_CROSS)gcc" \
 		AR_$(RUST_ENV_TARGET)="$(TARGET_CROSS)ar" \
-		RUSTFLAGS='-C target-feature=+crt-static -C link-self-contained=no -L native=$(PKG_BUILD_DIR)/rust-compat' \
+		RUSTFLAGS='-C target-feature=+crt-static -C link-self-contained=no -C relocation-model=static -L native=$(PKG_BUILD_DIR)/rust-compat' \
 		cargo $(if $(filter mipsel-unknown-linux-musl,$(XBOXDOWNLOAD_RUST_TARGET)),+nightly) build --release --locked \
 			$(if $(filter mipsel-unknown-linux-musl,$(XBOXDOWNLOAD_RUST_TARGET)),-Zbuild-std=std$(comma)panic_abort) \
 			--target $(XBOXDOWNLOAD_RUST_TARGET) --target-dir target
