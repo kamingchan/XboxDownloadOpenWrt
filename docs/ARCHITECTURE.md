@@ -8,22 +8,25 @@ This document is the **single source of truth** shared across the Rust daemon (`
    - Never modify `/etc/config/uhttpd` or restart `uhttpd`.
    - Never modify `table inet fw4` or SmartDNS configuration.
    - All firewall rules live inside an isolated `table inet xboxdownload`, atomically deleted on stop.
-   - All `dnsmasq` integration lives in `/tmp/dnsmasq.d/xboxdownload.conf`, matching **exact download/SRV hostnames only** (never broad wildcards like `xboxlive.com` that would break Xbox Live sign-in/multiplayer).
-   - Stopping or crashing `xboxdownloadd` leaves core routing, DHCP, SmartDNS, and OpenWrt LuCI 100% intact.
+   - All `dnsmasq` integration lives in a single fragment (`xboxdownload.conf`) inside the active `dnsmasq` `conf-dir` (auto-discovered from `/var/etc/dnsmasq.conf.*` / `dhcp.@dnsmasq[].confdir`, compatible with OpenWrt 23.05 `/tmp/dnsmasq.d` and 24.10 `/tmp/dnsmasq.<cfg>.d`), matching **exact download/SRV hostnames only** (never broad wildcards like `xboxlive.com`). CDN groups (`xbox_cn1`, `xbox_cn2`, `xbox_app`) are only delegated to `xboxdownloadd` once a valid IP (or Akamai fallback IP) is configured, so unconfigured groups never hijack Windows Update or default SmartDNS/OpenClash resolution.
+   - Stopping `xboxdownload` cleanly removes the `dnsmasq` fragment, alias IP, and `table inet xboxdownload`, leaving core routing, DHCP, SmartDNS, and OpenWrt LuCI intact.
 2. **Full IPv6 Compatibility**:
    - LAN IPv6 stays enabled.
    - For redirected `.com` / SRV fallback domains: DNS returns `<alias_ip>` for `A`, and empty `NOERROR` for `AAAA`, `HTTPS` (Type 65), and `SVCB` (Type 64).
-   - For CDN groups (`xbox_cn1`, `xbox_cn2`, `xbox_app`, `akamai`): supports `ipv4`, `ipv6`, and `dual` modes. When a group selects IPv4-only, `AAAA`/`HTTPS`/`SVCB` return empty `NOERROR` to prevent Happy Eyeballs bypass. When IPv6 is selected, `AAAA` returns the winning IPv6 CDN node.
-   - Optional per-MAC `nftables` IPv6 block inside `table inet xboxdownload` serves as a last-resort fallback.
+   - For CDN groups (`xbox_cn1`, `xbox_cn2`, `xbox_app`, `akamai`): supports `ipv4`, `ipv6`, and `dual` modes. When a group selects IPv4-only, `AAAA`/`HTTPS`/`SVCB` return empty `NOERROR` to prevent Happy Eyeballs bypass. When IPv6-only is selected, `AAAA` returns the winning IPv6 CDN node and `A`/`HTTPS`/`SVCB` return empty `NOERROR` (IPv4-only clients should use `ipv4` or `dual`).
+   - Optional per-MAC `nftables` IPv6 block inside `table inet xboxdownload` (`input` + `forward` chains) serves as a last-resort fallback.
 3. **Set-and-Forget Auto-Speedtest**:
    - Periodic background scheduler automatically tests candidate IPs and switches to a better node only when safe:
      - Defers if active HTTP 302 hits occurred within `defer_active_minutes`.
      - Applies hysteresis (`switch_threshold_pct`, e.g., 20%) unless current IP fails health check or drops below `min_speed_mbps`.
      - Never wipes a working IP if a scheduled run fails completely.
+     - Note: `speed_mbps` / `min_speed_mbps` / `last_speed_mbps` JSON/UCI keys are measured in **MB/s** (megabytes per second, matching XboxDownload conventions).
 4. **Open-Source Privacy & Offline Resilience**:
    - Bundled baseline IP lists under `/usr/share/xboxdownload/ip/` (`data/IP.*.txt`).
+   - Synced upstream IP lists cached under `/var/lib/xboxdownload/` (tmpfs on OpenWrt; auto-refreshed on sync).
+   - User custom IP lists persisted under `/etc/xboxdownload/` (`custom.<group>.txt`, preserved across reboots/sysupgrade via `conffiles`).
    - Configurable online sync mirrors (GitHub Raw, jsDelivr, or custom URL).
-   - Zero telemetry or automatic IP upload to third-party servers.
+   - Zero telemetry or automatic IP upload to third-party servers. (`xbox_app` default speedtest optionally queries the upstream package URL resolver unless `custom_test_url` is set, and gracefully falls back to TCP RTT if unreachable.)
 
 ---
 
@@ -93,18 +96,23 @@ DNS `SRV` (Type 33) queries return `NOERROR` with 0 answers (short TTL `60s`) to
       }
   }
   ```
-- Optional per-MAC IPv6 block (if `block_ipv6_macs` is non-empty), inside the same `table inet xboxdownload`:
+- Hotplug persistence: `/etc/hotplug.d/iface/95-xboxdownload` re-mounts `${alias_ip}/32` on `ifup`/`ifupdate` of `${lan_device}` if the interface reloads while the service is active.
+- Optional per-MAC IPv6 block (if `block_ipv6_mac` is non-empty), inside the same `table inet xboxdownload`:
   ```nft
   chain input_v6_block {
       type filter hook input priority filter - 5; policy accept;
       iifname "<lan_device>" ether saddr { <mac1>, <mac2> } udp dport 547 drop
-      iifname "<lan_device>" ether saddr { <mac1>, <mac2> } ip6 nexthdr icmpv6 drop
+      iifname "<lan_device>" ether saddr { <mac1>, <mac2> } meta l4proto icmpv6 drop
+  }
+  chain forward_v6_block {
+      type filter hook forward priority filter - 5; policy accept;
+      iifname "<lan_device>" ether saddr { <mac1>, <mac2> } meta nfproto ipv6 drop
   }
   ```
 - On stop:
   1. `nft delete table inet xboxdownload 2>/dev/null || true`
   2. `ip addr del "${alias_ip}/32" dev "${lan_device}" 2>/dev/null || true`
-  3. Remove `/tmp/dnsmasq.d/xboxdownload.conf` and reload `dnsmasq`.
+  3. Remove `xboxdownload.conf` from the recorded `dnsmasq` `conf-dir`(s) and restart `dnsmasq` once (only if a fragment was actually removed).
 
 ### 3.2 HTTP Custom Mode (`custom_port`)
 - Does not touch `ip addr` or `nftables` DNAT.
@@ -113,16 +121,18 @@ DNS `SRV` (Type 33) queries return `NOERROR` with 0 answers (short TTL `60s`) to
 ### 3.3 DNS Integration
 - Daemon listens on UDP (and TCP) at `${dns_bind}:${dns_port}` (default `127.0.0.1:5353`).
 - `dns_mode = "dnsmasq"` (default):
-  - Init script generates `/tmp/dnsmasq.d/xboxdownload.conf` containing **only exact managed hostnames** (12 redirect domains + 4 SRV domains + enabled CDN group domains):
+  - Init script auto-discovers active `dnsmasq` `conf-dir`(s) from `/var/etc/dnsmasq.conf.*` (falling back to `dhcp.@dnsmasq[].confdir` / `/tmp/dnsmasq.d`) so both OpenWrt 23.05 and 24.10 work out of the box.
+  - Generates `xboxdownload.conf` containing **only exact managed hostnames** (12 redirect domains + 4 SRV domains + enabled CDN group domains that have a configured IP or active Akamai fallback), normalizing `0.0.0.0`/`::` to `127.0.0.1`/`::1`, plus `rebind-domain-ok=/<host>/` for the 12 redirected hostnames when `redirect_ip` is private:
     ```text
     server=/assets1.xboxlive.com/127.0.0.1#5353
     ...
+    rebind-domain-ok=/assets1.xboxlive.com/
     ```
-  - Reloads `dnsmasq` cleanly (`/etc/init.d/dnsmasq reload`).
+  - **Minimal `dnsmasq` disruption**: Because `dnsmasq` only reloads `conf-dir` on restart (not `SIGHUP`), `xboxdownload.init` compares the generated fragment against the installed file and triggers `/etc/init.d/dnsmasq restart` **only when the fragment is added, modified, or removed**. Routine IP switches (`apply-ip`) only send `SIGHUP` to flush cache without restarting `dnsmasq`.
 - `dns_mode = "manual"`:
-  - Does not write `/tmp/dnsmasq.d/xboxdownload.conf`.
-  - LuCI displays copy-pasteable SmartDNS / AdGuardHome / dnsmasq upstream snippets.
-- **Loop prevention**: Daemon's fallback upstream (`upstream_dns`, default `223.5.5.5:53`) must never point to its own listen address or to `127.0.0.1:53` when `dns_mode = "dnsmasq"`.
+  - Does not write any `dnsmasq` fragment.
+  - LuCI displays copy-pasteable SmartDNS / AdGuardHome / dnsmasq (with `rebind-domain-ok`) upstream snippets.
+- **Loop prevention**: Daemon's fallback upstream (`upstream_dns`, default `223.5.5.5:53`) must never point to its own listen address or to **any local router interface IP on port 53** when `dns_mode = "dnsmasq"`.
 
 ---
 
@@ -142,12 +152,13 @@ config main 'main'
     option http_bind '0.0.0.0'           # used only in custom_port mode
     option http_port '18080'
     option redirect_ip ''                # override redirect target IP in custom_port mode
-    option socket_path '/var/run/xboxdownload.sock'
-    option data_dir '/usr/share/xboxdownload/ip'
-    option cache_dir '/var/lib/xboxdownload'
-    option apply_hook '/usr/libexec/xboxdownload/apply-ip'
+    option socket_path '/var/run/xboxdownload.sock'   # fixed safe path; not editable in LuCI
+    option data_dir '/usr/share/xboxdownload/ip'      # fixed safe path; not editable in LuCI
+    option cache_dir '/var/lib/xboxdownload'          # fixed safe path; not editable in LuCI
+    option custom_dir '/etc/xboxdownload'             # persistent custom IP lists; not editable in LuCI
+    option apply_hook '/usr/libexec/xboxdownload/apply-ip' # fixed safe path; not editable in LuCI
     option log_capacity '200'
-    list block_ipv6_mac ''               # optional MACs for nftables IPv6 fallback
+    # optional: list block_ipv6_mac 'aa:bb:cc:dd:ee:ff'
 
 config group 'xbox_cn1'
     option enabled '1'
@@ -156,6 +167,7 @@ config group 'xbox_cn1'
     option selected_ipv6 ''
     option filter_keyword ''             # e.g. '电信' / '联通' / '移动' / '广东'
     option custom_test_url ''
+    option use_akamai_fallback '0'
 
 config group 'xbox_cn2'
     option enabled '1'
@@ -164,6 +176,7 @@ config group 'xbox_cn2'
     option selected_ipv6 ''
     option filter_keyword ''
     option custom_test_url ''
+    option use_akamai_fallback '0'
 
 config group 'xbox_app'
     option enabled '1'
@@ -172,6 +185,7 @@ config group 'xbox_app'
     option selected_ipv6 ''
     option filter_keyword ''
     option custom_test_url ''
+    option use_akamai_fallback '0'
 
 config group 'akamai'
     option enabled '0'
@@ -184,10 +198,10 @@ config group 'akamai'
 config speedtest 'speedtest'
     option auto_enabled '1'
     option interval_hours '12'           # periodic interval in hours
-    option prefer_hour '4'               # preferred hour (0-23, -1 = anytime)
+    option prefer_hour '4'               # preferred local hour (0-23, -1 = anytime)
     option defer_active_minutes '15'     # skip/defer if HTTP 302 hit within last N mins
-    option switch_threshold_pct '20'     # switch only if new IP is >=20% faster
-    option min_speed_mbps '5.0'          # force switch if current IP < min_speed_mbps
+    option switch_threshold_pct '20'     # float: switch only if new IP is >=20% faster
+    option min_speed_mbps '5.0'          # float (MB/s): force switch if current IP < min_speed_mbps
     option prefilter_concurrency '24'
     option prefilter_top_n '10'
     option download_concurrency '4'
@@ -226,6 +240,7 @@ Exact JSON structure (all fields have serde defaults in Rust so partial configs 
     "socket_path": "/var/run/xboxdownload.sock",
     "data_dir": "/usr/share/xboxdownload/ip",
     "cache_dir": "/var/lib/xboxdownload",
+    "custom_dir": "/etc/xboxdownload",
     "apply_hook": "/usr/libexec/xboxdownload/apply-ip",
     "log_capacity": 200
   },
@@ -236,7 +251,8 @@ Exact JSON structure (all fields have serde defaults in Rust so partial configs 
       "selected_ipv4": "",
       "selected_ipv6": "",
       "filter_keyword": "",
-      "custom_test_url": ""
+      "custom_test_url": "",
+      "use_akamai_fallback": false
     },
     "xbox_cn2": {
       "enabled": true,
@@ -244,7 +260,8 @@ Exact JSON structure (all fields have serde defaults in Rust so partial configs 
       "selected_ipv4": "",
       "selected_ipv6": "",
       "filter_keyword": "",
-      "custom_test_url": ""
+      "custom_test_url": "",
+      "use_akamai_fallback": false
     },
     "xbox_app": {
       "enabled": true,
@@ -252,7 +269,8 @@ Exact JSON structure (all fields have serde defaults in Rust so partial configs 
       "selected_ipv4": "",
       "selected_ipv6": "",
       "filter_keyword": "",
-      "custom_test_url": ""
+      "custom_test_url": "",
+      "use_akamai_fallback": false
     },
     "akamai": {
       "enabled": false,
@@ -284,14 +302,17 @@ Exact JSON structure (all fields have serde defaults in Rust so partial configs 
 ```
 
 ### Apply-IP Hook Contract (`/usr/libexec/xboxdownload/apply-ip`)
-When the daemon's auto-scheduler or `apply_ip` RPC selects a new IP, it updates its in-memory routing table immediately AND invokes (if configured & executable):
+When the daemon's auto-scheduler or `apply_ip` RPC selects a new IP, it updates its in-memory routing table and invokes (if configured & executable):
 ```sh
 /usr/libexec/xboxdownload/apply-ip <group_id> <ipv4_or_empty> <ipv6_or_empty>
 ```
+If the hook fails or times out, the daemon rolls back the in-memory selection to its previous values so memory and persisted UCI never diverge.
+
 The hook script:
 1. Validates `<group_id>` is in `{xbox_cn1, xbox_cn2, xbox_app, akamai}` and validates IP syntax.
-2. Persists `selected_ipv4` / `selected_ipv6` via `uci set` + `uci commit xboxdownload`.
-3. Sends `SIGHUP` to `dnsmasq` (`killall -HUP dnsmasq 2>/dev/null || true`) to flush cached DNS answers immediately without interrupting active connections.
+2. Persists `selected_ipv4` / `selected_ipv6` via `uci set` + `uci commit xboxdownload` (under `flock -w 10`).
+3. Refreshes `/var/etc/xboxdownload.json` (pure render without calling daemon RPC, avoiding lock contention) so an immediate `SIGHUP` or `procd` respawn reads the newly applied IP.
+4. Sends `SIGHUP` to `dnsmasq` (`killall -HUP dnsmasq 2>/dev/null || true`) to flush cached DNS answers immediately without interrupting active connections. (If a previously empty CDN group just received its first IP, `procd`'s reload trigger asynchronously refreshes the `dnsmasq` fragment once.)
 
 ---
 
@@ -360,6 +381,7 @@ Error:
        "tested_count": 6,
        "total_to_download": 10,
        "error": null,
+       "note": null,
        "results": [
          {"ip": "114.105.125.22", "family": "ipv4", "location": "中国安徽阜阳 电信", "rtt_ms": 18.4, "speed_mbps": 82.5, "http_status": 206, "ok": true}
        ]
@@ -368,20 +390,22 @@ Error:
 5. **`speedtest_cancel`** (`params: {}`)
    - Cancels the active speedtest job. Returns `{"cancelled": true}`.
 6. **`apply_ip`** (`params: {"group": "xbox_cn1", "ipv4": "114.105.125.22", "ipv6": ""}`)
-   - Applies immediately in memory and triggers `apply_hook` (persists to UCI + SIGHUP `dnsmasq`).
+   - Applies in memory and triggers `apply_hook` (persists to UCI + refreshes runtime JSON + SIGHUP `dnsmasq`); rolls back memory if `apply_hook` fails. (`ipv4` and `ipv6` default to `""` if omitted.)
 7. **`sync_ips`** (`params: {"mirror": "github", "custom_base": ""}`)
    - Downloads fresh `IP.XboxCn1.txt`, `IP.XboxCn2.txt`, `IP.XboxApp.txt`, `IP.Akamai.txt`, `IP.AkamaiV2.txt` into `cache_dir`. Returns per-file counts and status.
 8. **`list_ips`** (`params: {"group": "xbox_cn1", "ip_family": "ipv4", "filter_keyword": ""}`)
-   - Lists candidate IPs (merged bundled/cached + custom) and total count.
+   - Lists candidate IPs (merged bundled/cached + custom), total count, and raw `custom_text` from `${custom_dir}/custom.<group>.txt` (falls back to `cache_dir` when `custom_dir` is empty).
 9. **`save_custom_ips`** (`params: {"group": "xbox_cn1", "text": "1.2.3.4\t(Custom)\n"}`)
-   - Saves user custom IPs under `${cache_dir}/custom.<group>.txt`.
+   - Saves user custom IPs under `${custom_dir}/custom.<group>.txt` (falls back to `cache_dir` when `custom_dir` is empty).
 10. **`self_check`** (`params: {}`)
-    - Executes real end-to-end checks against local DNS & HTTP listeners:
-      - `dns_redirect_a`: queries `xvcf1.xboxlive.com` A -> expects `redirect_ip`
-      - `dns_redirect_aaaa`: queries `xvcf1.xboxlive.com` AAAA -> expects empty `NOERROR`
-      - `dns_srv_block`: queries `assets-srvs.xboxlive.com` SRV -> expects empty `NOERROR`
+    - Executes real end-to-end checks against local DNS & HTTP listeners AND (when active) the router's live `dnsmasq` / `alias_ip:80` path:
+      - `dns_redirect_a`: queries daemon DNS for `xvcf1.xboxlive.com` A -> expects `redirect_ip`
+      - `dns_redirect_aaaa`: queries daemon DNS for `xvcf1.xboxlive.com` AAAA -> expects empty `NOERROR`
+      - `dns_srv_block`: queries daemon DNS for `assets-srvs.xboxlive.com` SRV -> expects empty `NOERROR`
       - `http_redirect`: sends `GET /Z/routing/extraextralarge.txt` (`Host: xvcf1.xboxlive.com`) to local HTTP listener -> expects `302` with `Location: http://assets1.xboxlive.cn/Z/routing/extraextralarge.txt`
       - `http_dlassets_redirect`: sends `GET /test` (`Host: dlassets.xboxlive.com`) -> expects `302` with `Location: http://dlassets.xboxlive.cn/test`
+      - `dnsmasq_redirect_a` *(when `dns.mode == "dnsmasq"`)*: queries `127.0.0.1:53` for `xvcf1.xboxlive.com` A -> expects `redirect_ip` (catches missing `conf-dir` or DNS rebind blocking)
+      - `http_alias_redirect` *(when `http.mode == "alias_ip"`)*: connects to `<redirect_ip>:80` (`Host: xvcf1.xboxlive.com`) -> expects `302` via `table inet xboxdownload` DNAT (catches dropped `/32` alias IP or broken nftables DNAT)
     - Returns `{"all_passed": true, "checks": [{"name": "...", "passed": true, "detail": "..."}]}`.
 11. **`reload`** (`params: {}`)
     - Reloads runtime config file from disk without restarting the process.
@@ -393,15 +417,15 @@ Error:
 The `rpcd` script `/usr/libexec/rpcd/luci.xboxdownload` exposes ubus object `luci.xboxdownload` with methods:
 - `status` -> proxies `status` (or returns `{"running": false}` if socket absent)
 - `logs` (`limit`) -> proxies `logs`
-- `speedtest_start` (`group`, `ip_family`, `filter_keyword`, `auto_apply`) -> proxies `speedtest_start`
+- `speedtest_start` (`group`, `ip_family`, `filter_keyword`, `auto_apply`) -> proxies `speedtest_start` (only forwards optional fields when supplied)
 - `speedtest_status` -> proxies `speedtest_status`
 - `speedtest_cancel` -> proxies `speedtest_cancel`
 - `apply_ip` (`group`, `ipv4`, `ipv6`) -> proxies `apply_ip` (or falls back to `apply-ip` hook if daemon stopped)
 - `sync_ips` (`mirror`, `custom_base`) -> proxies `sync_ips`
-- `list_ips` (`group`, `ip_family`, `filter_keyword`) -> proxies `list_ips`
+- `list_ips` (`group`, `ip_family`, `filter_keyword`) -> proxies `list_ips` directly (daemon already returns `custom_text`)
 - `save_custom_ips` (`group`, `text`) -> proxies `save_custom_ips`
 - `self_check` -> proxies `self_check`
-- `suggest_alias_ip` (`lan_device`) -> inspects `ip -4 addr show dev <lan_device>`, suggests an unused high IP in the same subnet (e.g. `.253` / `.252` / `.251`, checked via `ip neigh` & `arping`/`ping -c1 -W1`), returns `{"lan_ip": "192.168.1.1", "cidr": "192.168.1.1/24", "suggested_ip": "192.168.1.253", "in_use": false}`
+- `suggest_alias_ip` (`lan_device`) -> inspects `ip -4 addr show dev <lan_device>`, suggests an unused high IP in the same subnet (checked via `ip addr`, `ip neigh`, and `ping -I <lan_device> -c 1 -W 1`), returns `{"lan_ip": "192.168.1.1", "cidr": "192.168.1.1/24", "suggested_ip": "192.168.1.253", "in_use": false}`
 - `service_action` (`action`: `start|stop|restart|reload`) -> executes `/etc/init.d/xboxdownload <action>`
 
 Note: `xboxdownloadd ctl --socket /var/run/xboxdownload.sock --method <m> --params '<json>'` CLI subcommand is also provided by the Rust binary so `rpcd` does NOT need `socat`, `python3`, or `nc -U` on OpenWrt! It simply invokes `xboxdownloadd ctl ...`, which works cleanly on minimal OpenWrt images with zero extra runtime dependencies!
