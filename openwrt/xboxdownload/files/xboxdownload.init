@@ -3,8 +3,9 @@
 # shellcheck shell=sh disable=SC1091,SC2034,SC2154,SC3043
 # The apply hook runs while the daemon holds its mutation lock. A pure render
 # must also bypass rc.common's procd lock, which a concurrent reload can hold.
-case "$action" in sync_config) USE_PROCD='' ;; *) USE_PROCD=1 ;; esac
+case "${action:-}" in sync_config|resolve_upstream) USE_PROCD='' ;; *) USE_PROCD=1 ;; esac
 extra_command sync_config 'Render UCI configuration without contacting the daemon'
+extra_command resolve_upstream 'Print the automatically resolved upstream DNS endpoint'
 extra_command restore_alias 'Restore the active alias after a network interface event'
 START=95
 STOP=15
@@ -51,9 +52,7 @@ collect_mac() {
 
 # Compare binary-equivalent address spellings, including IPv4-mapped IPv6.
 check_upstream() {
-	local addresses
-	addresses=$(ip -o addr show) || { error 'Cannot enumerate router interface addresses'; return 1; }
-	printf '%s\n' "$addresses" | awk -v upstream="$1" -v port="$2" -v bind="$dns_bind" -v listen="$dns_port" -v mode="$dns_mode" '
+	printf '%s\n' "$3" | awk -v upstream="$1" -v port="$2" -v bind="$dns_bind" -v listen="$dns_port" -v mode="$dns_mode" '
 	function key(ip,    v4, octet, parts, left, right, n, m, i, hex) {
 		ip=tolower(ip)
 		if (index(ip,".")) {
@@ -74,15 +73,95 @@ check_upstream() {
 	} }
 	END { exit (up==any4 || up==any6 || (mode=="dnsmasq" && port==53 && local_ip) ||
 		(port==listen && (up==local_bind || ((local_bind==any4 || local_bind==any6) && local_ip)))) }
-	' || { error 'upstream_dns loops to a local DNS listener'; return 1; }
+	'
 }
 
-load_network_options() {
-	local upstream_ip upstream_port invalid_mac=0
+parse_upstream() {
+	local address port
+	upstream_error='Invalid upstream_dns address'
+	case "$1" in
+		*/*|*%*) return 1 ;;
+		\[*\]:*)
+			address=${1#\[}
+			address=${address%%\]:*}
+			port=${1#*\]:}
+			valid_ip ip6addr "$address" ;;
+		*:*)
+			address=${1%:*}
+			port=${1##*:}
+			valid_ip ip4addr "$address" ;;
+		*) return 1 ;;
+	esac || return 1
+	upstream_error='Invalid upstream_dns port'
+	valid_port "$port" || return 1
+	upstream_error='upstream_dns loops to a local DNS listener'
+	check_upstream "$address" "$port" "$2"
+}
+
+upstream_candidates() {
+	local file generated=0
+	{
+		for file in /var/etc/dnsmasq.conf.*; do
+			[ -f "$file" ] || continue
+			generated=1
+			awk '$1 ~ /^server=/ && (NF == 1 || $2 ~ /^#/) { print substr($1, 8) }' "$file"
+		done
+		if [ "$generated" = 0 ]; then
+			uci -q get 'dhcp.@dnsmasq[0].server' | awk '{ for (i=1; i<=NF; i++) print $i }'
+		fi
+	} | awk '
+		/^\// || /^#/ { next }
+		{
+			sub(/@.*/, "")
+			n=split($0, parts, "#")
+			if (n < 1 || n > 2) next
+			ip=parts[1]
+			if (ip ~ /^\[.*:.*\]$/) ip=substr(ip, 2, length(ip)-2)
+			if (ip !~ /^[[:xdigit:].:]+$/) next
+			print (index(ip, ":") ? "[" ip "]" : ip) ":" (n == 2 ? parts[2] : 53)
+		}'
+	for file in /tmp/resolv.conf.d/resolv.conf.auto /tmp/resolv.conf.auto; do
+		[ -r "$file" ] || continue
+		awk '$1 == "nameserver" && $2 ~ /^[[:xdigit:].:]+$/ { print (index($2, ":") ? "[" $2 "]" : $2) ":53" }' "$file"
+		break
+	done
+	printf '%s\n' '223.5.5.5:53'
+}
+
+select_upstream() {
+	local addresses upstream_error
+	addresses=$(ip -o addr show) || { error 'Cannot enumerate router interface addresses'; return 1; }
+	if [ -n "$upstream" ]; then
+		parse_upstream "$upstream" "$addresses" || { error "$upstream_error"; return 1; }
+		return 0
+	fi
+	while IFS= read -r upstream; do
+		parse_upstream "$upstream" "$addresses" && return 0
+	done <<CANDIDATES
+$(upstream_candidates)
+CANDIDATES
+	error 'No safe upstream DNS server available'
+}
+
+load_dns_listener() {
 	config_get dns_mode main dns_mode dnsmasq
 	config_get dns_bind main dns_bind 127.0.0.1
 	config_get dns_port main dns_port 5353
-	config_get upstream main upstream_dns 223.5.5.5:53
+	case "$dns_mode" in dnsmasq|manual) ;; *) error 'Invalid dns_mode'; return 1 ;; esac
+	valid_port "$dns_port" || { error 'Invalid listener port'; return 1; }
+	valid_ip ipaddr "$dns_bind" || { error 'Invalid listener address'; return 1; }
+}
+
+resolve_upstream() {
+	local dns_mode dns_bind dns_port upstream=''
+	config_load xboxdownload && load_dns_listener && select_upstream || return 1
+	printf '%s\n' "$upstream"
+}
+
+load_network_options() {
+	local invalid_mac=0
+	load_dns_listener || return 1
+	config_get upstream main upstream_dns
 	config_get http_mode main http_mode alias_ip
 	config_get lan_device main lan_device br-lan
 	config_get alias_ip main alias_ip
@@ -90,10 +169,9 @@ load_network_options() {
 	config_get http_port main http_port 18080
 	config_get redirect_ip main redirect_ip
 
-	case "$dns_mode" in dnsmasq|manual) ;; *) error 'Invalid dns_mode'; return 1 ;; esac
 	valid_device "$lan_device" || { error 'Invalid lan_device'; return 1; }
-	if ! valid_port "$dns_port" || ! valid_port "$http_port"; then error 'Invalid listener port'; return 1; fi
-	if ! valid_ip ipaddr "$dns_bind" || ! valid_ip ipaddr "$http_bind"; then error 'Invalid listener address'; return 1; fi
+	valid_port "$http_port" || { error 'Invalid listener port'; return 1; }
+	valid_ip ipaddr "$http_bind" || { error 'Invalid listener address'; return 1; }
 	[ -z "$redirect_ip" ] || valid_ip ip4addr "$redirect_ip" || { error 'Invalid redirect_ip'; return 1; }
 	[ -z "$alias_ip" ] || valid_ip ip4addr "$alias_ip" || { error 'Invalid alias_ip'; return 1; }
 	case "$http_mode" in
@@ -111,14 +189,7 @@ load_network_options() {
 		*) error 'Invalid http_mode'; return 1 ;;
 	esac
 
-	upstream_port=${upstream##*:}
-	case "$upstream" in
-		\[*\]:*) upstream_ip=${upstream#\[}; upstream_ip=${upstream_ip%\]:*}; valid_ip ip6addr "$upstream_ip" ;;
-		*:*) upstream_ip=${upstream%:*}; valid_ip ip4addr "$upstream_ip" ;;
-		*) false ;;
-	esac || { error 'Invalid upstream_dns address'; return 1; }
-	valid_port "$upstream_port" || { error 'Invalid upstream_dns port'; return 1; }
-	check_upstream "$upstream_ip" "$upstream_port" || return 1
+	select_upstream || return 1
 	macs=''
 	config_list_foreach main block_ipv6_mac collect_mac
 	[ "$invalid_mac" = 0 ] || { error 'Invalid block_ipv6_mac'; return 1; }
