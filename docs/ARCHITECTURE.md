@@ -152,12 +152,13 @@ config main 'main'
     option http_bind '0.0.0.0'           # used only in custom_port mode
     option http_port '18080'
     option redirect_ip ''                # override redirect target IP in custom_port mode
-    option socket_path '/var/run/xboxdownload.sock'   # fixed safe path; not editable in LuCI
-    option data_dir '/usr/share/xboxdownload/ip'      # fixed safe path; not editable in LuCI
-    option cache_dir '/var/lib/xboxdownload'          # fixed safe path; not editable in LuCI
-    option custom_dir '/etc/xboxdownload'             # persistent custom IP lists; not editable in LuCI
-    option apply_hook '/usr/libexec/xboxdownload/apply-ip' # fixed safe path; not editable in LuCI
     option log_capacity '200'
+    # Fixed runtime paths (not stored/editable in UCI for M8 security hardening):
+    #   socket_path=/var/run/xboxdownload.sock
+    #   data_dir=/usr/share/xboxdownload/ip
+    #   cache_dir=/var/lib/xboxdownload
+    #   custom_dir=/etc/xboxdownload
+    #   apply_hook=/usr/libexec/xboxdownload/apply-ip
     # optional: list block_ipv6_mac 'aa:bb:cc:dd:ee:ff'
 
 config group 'xbox_cn1'
