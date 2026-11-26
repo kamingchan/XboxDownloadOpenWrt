@@ -1,0 +1,25 @@
+[package]
+name = "xboxdownloadd"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Local DNS, HTTP redirect and CDN selection service for XboxDownloadOpenWrt"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+futures-util = "0.3"
+hickory-proto = { version = "0.26", default-features = false, features = ["std"] }
+httparse = "1"
+if-addrs = "0.15"
+portable-atomic = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-webpki-roots"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["macros", "rt", "net", "sync", "time", "signal", "process", "fs", "io-util"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+url = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
