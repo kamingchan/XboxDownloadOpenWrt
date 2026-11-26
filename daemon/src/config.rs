@@ -106,8 +106,19 @@ pub struct Runtime {
     pub socket_path: PathBuf,
     pub data_dir: PathBuf,
     pub cache_dir: PathBuf,
+    #[serde(default)]
+    pub custom_dir: PathBuf,
     pub apply_hook: PathBuf,
     pub log_capacity: usize,
+}
+impl Runtime {
+    pub fn custom_root(&self) -> &Path {
+        if self.custom_dir.as_os_str().is_empty() {
+            &self.cache_dir
+        } else {
+            &self.custom_dir
+        }
+    }
 }
 impl Default for Runtime {
     fn default() -> Self {
@@ -115,6 +126,7 @@ impl Default for Runtime {
             socket_path: "/var/run/xboxdownload.sock".into(),
             data_dir: "/usr/share/xboxdownload/ip".into(),
             cache_dir: "/var/lib/xboxdownload".into(),
+            custom_dir: PathBuf::new(),
             apply_hook: "/usr/libexec/xboxdownload/apply-ip".into(),
             log_capacity: 200,
         }
@@ -192,6 +204,22 @@ impl Default for Config {
     }
 }
 impl Config {
+    /// Addresses served by DNS and delegated by the generated dnsmasq fragment.
+    pub fn cdn_addresses(&self, id: &str) -> Vec<IpAddr> {
+        let group = &self.groups[id];
+        if !group.enabled {
+            return Vec::new();
+        }
+        let selected: Vec<_> = group.selected().collect();
+        if selected.is_empty() && group.use_akamai_fallback && self.groups["akamai"].enabled {
+            return self.groups["akamai"]
+                .selected()
+                .filter(|ip| group.ip_family.allows(*ip))
+                .collect();
+        }
+        selected
+    }
+
     pub async fn load(path: &Path) -> Result<Self> {
         let bytes = tokio::fs::read(path)
             .await

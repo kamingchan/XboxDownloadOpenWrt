@@ -28,7 +28,6 @@ struct Listeners {
 }
 impl Listeners {
     async fn install(&mut self, s: &Shared, c: Config) -> Result<()> {
-        let _guard = s.mutation.lock().await;
         let old = s.snapshot();
         let dns = if self.dns.is_empty() || old.dns.addr() != c.dns.addr() {
             Some((
@@ -114,6 +113,9 @@ async fn run(path: &Path) -> Result<()> {
             request = rx.recv() => request,
         };
         let result = async {
+            // The persistence hook can replace the runtime JSON while applying an IP.
+            // Take the lock before reading it, so a concurrent reload sees the committed selection.
+            let _guard = s.mutation.lock().await;
             listeners.install(&s, Config::load(path).await?).await?;
             s.changed.notify_one();
             Ok(())
@@ -178,11 +180,15 @@ async fn execute(command: &str, iter: impl Iterator<Item = String>) -> Result<bo
                 .chain(
                     rules::GROUPS
                         .iter()
-                        .filter(|r| c.groups[r.id].enabled)
+                        .filter(|r| !c.cdn_addresses(r.id).is_empty())
                         .flat_map(|r| r.hosts),
                 )
             {
-                println!("server=/{host}/{}#{}", c.dns.bind, c.dns.port);
+                println!(
+                    "server=/{host}/{}#{}",
+                    net::reachable(c.dns.addr()).ip(),
+                    c.dns.port
+                );
             }
             Ok(true)
         }

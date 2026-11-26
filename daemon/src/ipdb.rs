@@ -65,15 +65,20 @@ pub async fn list(c: &Config, id: &str, family: Family, keyword: &str) -> Result
             }
         }
     }
-    let custom_text = optional(c.runtime.cache_dir.join(format!("custom.{id}.txt")))
+    let custom_text = optional(c.runtime.custom_root().join(format!("custom.{id}.txt")))
         .await?
         .unwrap_or_default();
     let mut seen = HashSet::new();
+    let keyword = keyword.to_lowercase();
     let ips = contents
         .lines()
         .chain(custom_text.lines())
         .filter_map(entry)
-        .filter(|e| family.allows(e.ip) && e.location.contains(keyword) && seen.insert(e.ip))
+        .filter(|e| {
+            family.allows(e.ip)
+                && (keyword.is_empty() || e.location.to_lowercase().contains(&keyword))
+                && seen.insert(e.ip)
+        })
         .collect();
     Ok(IpList { ips, custom_text })
 }
@@ -99,7 +104,7 @@ pub async fn save(c: &Config, id: &str, text: &str) -> Result<usize> {
         count += 1;
     }
     replace(
-        &c.runtime.cache_dir.join(format!("custom.{id}.txt")),
+        &c.runtime.custom_root().join(format!("custom.{id}.txt")),
         text.as_bytes(),
     )
     .await?;

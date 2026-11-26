@@ -14,6 +14,7 @@ use reqwest::{
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
+    collections::HashSet,
     net::{IpAddr, SocketAddr},
     sync::atomic::Ordering,
     time::{Duration, Instant},
@@ -278,6 +279,21 @@ async fn probe(mut m: Measurement, urls: &[Url], settings: &Speed) -> Measuremen
     m.ok = false;
     m
 }
+fn shortlist(mut candidates: Vec<Measurement>, per_family: usize) -> Vec<Measurement> {
+    candidates.sort_by(|a, b| a.rtt_ms.total_cmp(&b.rtt_ms));
+    let (mut v4, mut v6) = (0, 0);
+    candidates.retain(|m| {
+        let count = if m.node.ip.is_ipv4() {
+            &mut v4
+        } else {
+            &mut v6
+        };
+        *count += 1;
+        *count <= per_family
+    });
+    candidates
+}
+
 async fn measure(s: &Shared, opt: &Options) -> Result<String> {
     let c = s.snapshot();
     let g = &c.groups[&opt.group];
@@ -286,32 +302,24 @@ async fn measure(s: &Shared, opt: &Options) -> Result<String> {
     let port = targets.port();
     s.job.lock().unwrap().note = targets.note;
     let urls = targets.urls;
-    let mut baseline = Vec::new();
-    if opt.apply {
-        s.job.lock().unwrap().stage = "baseline";
-        for addr in [&g.selected_ipv4, &g.selected_ipv6]
+    let mut candidates = ipdb::list(&c, &opt.group, opt.family, &opt.keyword)
+        .await?
+        .ips;
+    let mut incumbents = Vec::new();
+    let mut baseline_only = Vec::new();
+    if opt.apply && !urls.is_empty() {
+        for ip in [&g.selected_ipv4, &g.selected_ipv6]
             .into_iter()
-            .filter_map(|v| v.parse().ok())
+            .filter_map(|value| value.parse().ok())
             .filter(|ip| opt.family.allows(*ip))
         {
-            if let Some(m) = rtt(
-                Candidate::new(addr, String::new()),
-                port,
-                settings.tcp_timeout_ms,
-            )
-            .await
-            {
-                baseline.push(if urls.is_empty() {
-                    m
-                } else {
-                    probe(m, &urls, settings).await
-                });
+            incumbents.push(ip);
+            if !candidates.iter().any(|node| node.ip == ip) {
+                baseline_only.push(ip);
+                candidates.push(Candidate::new(ip, String::new()));
             }
         }
     }
-    let candidates = ipdb::list(&c, &opt.group, opt.family, &opt.keyword)
-        .await?
-        .ips;
     {
         let mut j = s.job.lock().unwrap();
         j.stage = "prefiltering";
@@ -327,25 +335,43 @@ async fn measure(s: &Shared, opt: &Options) -> Result<String> {
         }
         s.job.lock().unwrap().tested_count += 1;
     }
-    fast.sort_by(|a, b| a.rtt_ms.total_cmp(&b.rtt_ms));
-    fast.truncate(settings.prefilter_top_n);
-    let mut results = fast;
+    let mut baseline = Vec::new();
+    let mut batch: Vec<_> = fast
+        .iter()
+        .filter(|m| incumbents.contains(&m.node.ip))
+        .cloned()
+        .collect();
+    fast.retain(|m| !baseline_only.contains(&m.node.ip));
+    let mut results = shortlist(fast, settings.prefilter_top_n);
     if !urls.is_empty() {
-        let mut j = s.job.lock().unwrap();
-        j.stage = "downloading";
-        j.tested_count = 0;
-        j.total_to_download = results.len();
-    }
-    if !urls.is_empty() {
+        // Measure each incumbent once in the same download pool as the challengers.
+        // A filtered-out incumbent is still a baseline, but cannot win as a new candidate.
+        let finalists: HashSet<_> = results.iter().map(|m| m.node.ip).collect();
+        batch.extend(
+            results
+                .into_iter()
+                .filter(|m| !incumbents.contains(&m.node.ip)),
+        );
+        {
+            let mut j = s.job.lock().unwrap();
+            j.stage = "downloading";
+            j.tested_count = 0;
+            j.total_to_download = batch.len();
+        }
         let mut downloaded = Vec::new();
-        let mut tasks = stream::iter(results)
+        let mut tasks = stream::iter(batch)
             .map(|m| probe(m, &urls, settings))
             .buffer_unordered(settings.download_concurrency);
         while let Some(m) = tasks.next().await {
             let mut j = s.job.lock().unwrap();
             j.tested_count += 1;
-            j.results.push(m.clone());
-            downloaded.push(m);
+            if incumbents.contains(&m.node.ip) {
+                baseline.push(m.clone());
+            }
+            if finalists.contains(&m.node.ip) {
+                j.results.push(m.clone());
+                downloaded.push(m);
+            }
         }
         downloaded.sort_by(|a, b| {
             b.ok.cmp(&a.ok)
@@ -393,6 +419,30 @@ async fn measure(s: &Shared, opt: &Options) -> Result<String> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn many_fast_ipv4_nodes_cannot_displace_a_reachable_ipv6_node() {
+        let measurement = |ip, rtt_ms| Measurement {
+            node: Candidate::new(ip, String::new()),
+            rtt_ms,
+            speed_mbps: 0.,
+            http_status: None,
+            ok: true,
+        };
+        let ipv6 = "2001:db8::1".parse().unwrap();
+        let mut candidates = vec![measurement(ipv6, 500.)];
+        for i in (1..=8).rev() {
+            candidates.push(measurement(IpAddr::from([192, 0, 2, i]), f64::from(i)));
+        }
+        let nodes: Vec<_> = shortlist(candidates, 2).iter().map(|m| m.node.ip).collect();
+        assert_eq!(
+            nodes,
+            [
+                IpAddr::from([192, 0, 2, 1]),
+                IpAddr::from([192, 0, 2, 2]),
+                ipv6
+            ]
+        );
+    }
     #[tokio::test]
     async fn offline_resolver_uses_tcp_port_80_and_custom_url_takes_precedence() {
         use tokio::{

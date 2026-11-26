@@ -44,6 +44,17 @@ fn first(now: u64, s: &Speed) -> u64 {
         })
         .unwrap_or(now + 86400)
 }
+fn run_status(switched: bool, deferred: bool, failed: bool) -> &'static str {
+    if switched {
+        "switched"
+    } else if deferred {
+        "deferred"
+    } else if failed {
+        "warning"
+    } else {
+        "kept"
+    }
+}
 fn record(s: &Shared, status: &str, message: String) {
     let mut sc = s.schedule.lock().unwrap();
     sc.last_run_ts = now();
@@ -153,16 +164,11 @@ pub async fn serve(s: Shared) {
                     break;
                 }
             }
-            let status = if deferred {
-                "deferred"
-            } else if failed {
-                "warning"
-            } else if switched {
-                "switched"
-            } else {
-                "kept"
-            };
-            record(&s, status, messages.join("; "));
+            record(
+                &s,
+                run_status(switched, deferred, failed),
+                messages.join("; "),
+            );
             next = now()
                 + if deferred {
                     900
@@ -175,6 +181,12 @@ pub async fn serve(s: Shared) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn successful_switch_takes_precedence_in_mixed_runs() {
+        assert_eq!(run_status(true, false, true), "switched");
+        assert_eq!(run_status(true, true, true), "switched");
+        assert_eq!(run_status(false, false, true), "warning");
+    }
     #[test]
     fn downloads_defer_until_quiet() {
         assert!(active(150, 100, 1));

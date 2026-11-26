@@ -11,8 +11,7 @@ use tokio::{
     net::{TcpStream, UdpSocket},
     time::timeout,
 };
-async fn dns(c: &Config, name: &str, ty: RecordType) -> Result<()> {
-    let dest = net::reachable(c.dns.addr());
+async fn dns(c: &Config, dest: SocketAddr, name: &str, ty: RecordType) -> Result<()> {
     let s = UdpSocket::bind(if dest.is_ipv4() {
         "0.0.0.0:0"
     } else {
@@ -77,28 +76,21 @@ async fn check(name: &str, f: impl Future<Output = Result<()>>) -> Value {
     }
 }
 pub async fn run(c: &Config) -> Value {
-    let (a, aaaa, srv, core, legacy) = tokio::join!(
-        check(
-            "dns_redirect_a",
-            dns(c, "xvcf1.xboxlive.com", RecordType::A)
-        ),
+    let listener = net::reachable(c.dns.addr());
+    const HOST: &str = "xvcf1.xboxlive.com";
+    const PATH: &str = "/Z/routing/extraextralarge.txt";
+    const TARGET: &str = "assets1.xboxlive.cn";
+    let (a, aaaa, srv, core, legacy, dnsmasq, alias) = tokio::join!(
+        check("dns_redirect_a", dns(c, listener, HOST, RecordType::A)),
         check(
             "dns_redirect_aaaa",
-            dns(c, "xvcf1.xboxlive.com", RecordType::AAAA)
+            dns(c, listener, HOST, RecordType::AAAA)
         ),
         check(
             "dns_srv_block",
-            dns(c, "assets-srvs.xboxlive.com", RecordType::SRV)
+            dns(c, listener, "assets-srvs.xboxlive.com", RecordType::SRV)
         ),
-        check(
-            "http_redirect",
-            http(
-                c.http.addr(),
-                "xvcf1.xboxlive.com",
-                "/Z/routing/extraextralarge.txt",
-                "assets1.xboxlive.cn"
-            )
-        ),
+        check("http_redirect", http(c.http.addr(), HOST, PATH, TARGET)),
         check(
             "http_dlassets_redirect",
             http(
@@ -107,8 +99,26 @@ pub async fn run(c: &Config) -> Value {
                 "/test",
                 "dlassets.xboxlive.cn"
             )
-        )
+        ),
+        async {
+            if c.dns.mode == "dnsmasq" {
+                let dest = SocketAddr::from(([127, 0, 0, 1], 53));
+                Some(check("dnsmasq_redirect_a", dns(c, dest, HOST, RecordType::A)).await)
+            } else {
+                None
+            }
+        },
+        async {
+            if c.http.mode == "alias_ip" {
+                let dest = SocketAddr::from((c.http.redirect_ip, 80));
+                Some(check("http_alias_redirect", http(dest, HOST, PATH, TARGET)).await)
+            } else {
+                None
+            }
+        },
     );
-    let checks = [a, aaaa, srv, core, legacy];
+    let mut checks = vec![a, aaaa, srv, core, legacy];
+    checks.extend(dnsmasq);
+    checks.extend(alias);
     json!({"all_passed":checks.iter().all(|v|v["passed"]==true),"checks":checks})
 }

@@ -95,8 +95,8 @@ async fn dispatch(s: &Shared, request: Request) -> Result<Value> {
         "apply_ip" => {
             let id = required(p, "group")?;
             rules::group(id)?;
-            let v4 = required(p, "ipv4")?;
-            let v6 = required(p, "ipv6")?;
+            let v4 = string(p, "ipv4", "")?;
+            let v6 = string(p, "ipv6", "")?;
             s.apply(id, v4, v6, None, false).await?;
             Ok(json!({"group":id,"ipv4":v4,"ipv6":v6}))
         }

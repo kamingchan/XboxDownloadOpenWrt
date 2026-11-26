@@ -26,19 +26,21 @@ const DEADLINE: Duration = Duration::from_secs(3);
 pub fn loops(c: &Dns) -> bool {
     let up = c.upstream.ip().to_canonical();
     let bind = c.bind.to_canonical();
-    if c.upstream.port() == 0
-        || up.is_unspecified()
-        || (c.mode == "dnsmasq" && c.upstream.port() == 53 && up.is_loopback())
-    {
+    let port = c.upstream.port();
+    if port == 0 || up.is_unspecified() || (port == c.port && bind == up) {
         return true;
     }
-    c.port == c.upstream.port()
-        && (bind == up
-            || (bind.is_unspecified()
-                && (up.is_loopback()
-                    || if_addrs::get_if_addrs()
-                        .map(|a| a.iter().any(|i| i.ip().to_canonical() == up))
-                        .unwrap_or(true))))
+    if (c.mode == "dnsmasq" && port == 53) || (port == c.port && bind.is_unspecified()) {
+        return up.is_loopback()
+            || if_addrs::get_if_addrs()
+                .map(|addresses| {
+                    addresses
+                        .iter()
+                        .any(|iface| iface.ip().to_canonical() == up)
+                })
+                .unwrap_or(true);
+    }
+    false
 }
 enum Answer {
     Address(IpAddr),
@@ -56,24 +58,10 @@ fn policy(c: &Config, host: &str, ty: T) -> Answer {
     if rules::SRV.contains(&host) {
         return Answer::Empty;
     }
-    let Some(group) = rules::GROUPS
-        .iter()
-        .find(|r| r.hosts.contains(&host))
-        .and_then(|r| c.groups.get(r.id))
-        .filter(|g| g.enabled)
-    else {
+    let Some(rule) = rules::GROUPS.iter().find(|r| r.hosts.contains(&host)) else {
         return Answer::Forward;
     };
-    let akamai = c
-        .groups
-        .get("akamai")
-        .filter(|g| g.enabled && group.use_akamai_fallback);
-    let mut addresses: Vec<_> = group.selected().collect();
-    if addresses.is_empty()
-        && let Some(g) = akamai
-    {
-        addresses.extend(g.selected().filter(|ip| group.ip_family.allows(*ip)));
-    }
+    let addresses = c.cdn_addresses(rule.id);
     if addresses.is_empty() {
         return Answer::Forward;
     }
@@ -213,4 +201,29 @@ pub async fn tcp(s: Shared, lis: TcpListener) {
         }
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dnsmasq_rejects_upstream_on_all_local_interfaces() {
+        for interface in if_addrs::get_if_addrs().unwrap() {
+            let ip = interface.ip();
+            let config = Dns {
+                upstream: SocketAddr::new(ip, 53),
+                ..Default::default()
+            };
+            assert!(loops(&config), "dnsmasq loop at {ip}");
+            let manual = Dns {
+                mode: "manual".into(),
+                ..config
+            };
+            assert!(
+                !loops(&manual),
+                "manual DNS listening on another port at {ip}"
+            );
+        }
+    }
 }

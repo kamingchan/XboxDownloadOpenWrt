@@ -11,6 +11,7 @@ use std::{
     collections::{BTreeMap, VecDeque},
     net::IpAddr,
     os::unix::fs::PermissionsExt,
+    path::Path,
     sync::{Arc, Mutex, RwLock, atomic::Ordering},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -132,7 +133,7 @@ impl State {
     ) -> Result<bool> {
         validate_ips(v4, v6)?;
         let _guard = self.mutation.lock().await;
-        let hook = {
+        let (hook, prev_v4, prev_v6) = {
             let mut config = self.config.write().unwrap();
             let c = Arc::make_mut(&mut config);
             if scheduled
@@ -150,32 +151,68 @@ impl State {
                 expected.is_none_or(|e| g == e),
                 "group changed during speedtest"
             );
-            g.selected_ipv4 = v4.into();
-            g.selected_ipv6 = v6.into();
-            c.runtime.apply_hook.clone()
+            let prev_v4 = std::mem::replace(&mut g.selected_ipv4, v4.into());
+            let prev_v6 = std::mem::replace(&mut g.selected_ipv6, v6.into());
+            (c.runtime.apply_hook.clone(), prev_v4, prev_v6)
         };
-        if hook.as_os_str().is_empty() {
-            return Ok(true);
+        if let Err(error) = run_apply_hook(&hook, id, v4, v6).await {
+            let mut config = self.config.write().unwrap();
+            // The mutation lock also serializes reloads, so this group is still present.
+            let g = Arc::make_mut(&mut config).groups.get_mut(id).unwrap();
+            g.selected_ipv4 = prev_v4;
+            g.selected_ipv6 = prev_v6;
+            return Err(error);
         }
-        match tokio::fs::metadata(&hook).await {
-            Ok(m) if m.is_file() && m.permissions().mode() & 0o111 != 0 => (),
-            Ok(_) => return Ok(true),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(true),
-            Err(e) => return Err(e.into()),
-        }
-        let status = tokio::time::timeout(
-            Duration::from_secs(20),
-            tokio::process::Command::new(hook)
-                .args([id, v4, v6])
-                .kill_on_drop(true)
-                .status(),
-        )
-        .await
-        .context("apply hook timed out after in-memory update")??;
-        ensure!(
-            status.success(),
-            "apply hook exited with {status} after in-memory update"
-        );
         Ok(true)
+    }
+}
+
+async fn run_apply_hook(hook: &Path, id: &str, v4: &str, v6: &str) -> Result<()> {
+    if hook.as_os_str().is_empty() {
+        return Ok(());
+    }
+    match tokio::fs::metadata(hook).await {
+        Ok(m) if m.is_file() && m.permissions().mode() & 0o111 != 0 => (),
+        Ok(_) => return Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
+    }
+    let status = tokio::time::timeout(
+        Duration::from_secs(20),
+        tokio::process::Command::new(hook)
+            .args([id, v4, v6])
+            .kill_on_drop(true)
+            .status(),
+    )
+    .await
+    .context("apply hook timed out")??;
+    ensure!(status.success(), "apply hook exited with {status}");
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test(start_paused = true)]
+    async fn hook_timeout_restores_previous_selection() {
+        let dir = tempfile::tempdir().unwrap();
+        let hook = dir.path().join("apply-ip");
+        std::fs::write(&hook, "#!/bin/sh\nexec sleep 60\n").unwrap();
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut config = Config::default();
+        config.runtime.apply_hook = hook;
+        let group = config.groups.get_mut("xbox_cn1").unwrap();
+        group.selected_ipv4 = "192.0.2.1".into();
+        group.selected_ipv6 = "2001:db8::1".into();
+        let state = State::new(config, mpsc::channel(1).0);
+        let error = state
+            .apply("xbox_cn1", "192.0.2.2", "", None, false)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("timed out"));
+        let config = state.snapshot();
+        let group = &config.groups["xbox_cn1"];
+        assert_eq!(group.selected_ipv4, "192.0.2.1");
+        assert_eq!(group.selected_ipv6, "2001:db8::1");
     }
 }

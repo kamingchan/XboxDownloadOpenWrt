@@ -52,13 +52,22 @@ async fn port() -> TcpListener {
 }
 impl Daemon {
     async fn start(extra: Value) -> Self {
+        // The subprocess binds after the temporary port reservations have been released.
+        for _ in 0..5 {
+            if let Some(daemon) = Self::try_start(&extra).await {
+                return daemon;
+            }
+        }
+        panic!("could not reserve free daemon listener ports");
+    }
+    async fn try_start(extra: &Value) -> Option<Self> {
         let dir = tempfile::tempdir_in("/tmp").unwrap();
         let dl = port().await;
         let hl = port().await;
         let dns = dl.local_addr().unwrap();
         let http = hl.local_addr().unwrap();
         let socket = dir.path().join("control.sock");
-        let mut c = json!({"dns":{"port":dns.port(),"mode":"manual"},"http":{"port":http.port(),"redirect_ip":"192.0.2.8"},"runtime":{"socket_path":socket,"data_dir":Path::new(env!("CARGO_MANIFEST_DIR")).join("../data"),"cache_dir":dir.path(),"apply_hook":"","log_capacity":3},"speedtest":{"auto_enabled":false}});
+        let mut c = json!({"dns":{"port":dns.port(),"mode":"manual"},"http":{"mode":"custom_port","port":http.port(),"redirect_ip":"192.0.2.8"},"runtime":{"socket_path":socket,"data_dir":Path::new(env!("CARGO_MANIFEST_DIR")).join("../data"),"cache_dir":dir.path(),"apply_hook":"","log_capacity":3},"speedtest":{"auto_enabled":false}});
         fn merge(base: &mut Value, v: Value) {
             if let Value::Object(obj) = v {
                 for (k, val) in obj {
@@ -68,35 +77,45 @@ impl Daemon {
                 *base = v;
             }
         }
-        merge(&mut c, extra);
+        merge(&mut c, extra.clone());
         let path = dir.path().join("config.json");
         std::fs::write(&path, c.to_string()).unwrap();
+        let stderr = dir.path().join("stderr");
         drop((dl, hl));
         let mut child = Command::new(BIN)
             .args(["run", "--config"])
             .arg(&path)
             .kill_on_drop(true)
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::from(std::fs::File::create(&stderr).unwrap()))
             .spawn()
             .unwrap();
-        timeout(Duration::from_secs(5), async {
+        let ready = timeout(Duration::from_secs(5), async {
             loop {
                 if UnixStream::connect(&socket).await.is_ok() {
-                    break;
+                    return true;
                 }
-                assert!(child.try_wait().unwrap().is_none(), "daemon exited early");
+                if child.try_wait().unwrap().is_some() {
+                    let message = std::fs::read_to_string(&stderr).unwrap();
+                    if message.contains("Address already in use") {
+                        return false;
+                    }
+                    panic!("daemon exited early: {message}");
+                }
                 sleep(Duration::from_millis(10)).await;
             }
         })
         .await
         .unwrap();
-        Self {
+        if !ready {
+            return None;
+        }
+        Some(Self {
             dir,
             config: c,
             child,
             dns,
             http,
-        }
+        })
     }
     fn socket(&self) -> &str {
         self.config["runtime"]["socket_path"].as_str().unwrap()
@@ -372,7 +391,7 @@ async fn control_cli_self_check_reload_and_shutdown() {
         .await
         .unwrap();
     let text = String::from_utf8(result.stdout).unwrap();
-    assert_eq!(text.lines().count(), 23);
+    assert_eq!(text.lines().count(), 16);
     for host in CORE.iter().chain(LEGACY).chain(SRV) {
         assert!(text.contains(&format!("server=/{host}/127.0.0.1#{}\n", d.dns.port())));
     }
@@ -514,11 +533,17 @@ async fn ip_lists_merge_filter_and_validate_mirror_before_replace() {
     d.stop("-TERM").await;
 }
 // The prefilter connects and closes immediately. Only actual test requests receive a body.
-async fn mock_node(listener: TcpListener, status: Arc<AtomicU16>, delay: Duration) {
+async fn mock_node(
+    listener: TcpListener,
+    status: Arc<AtomicU16>,
+    delay: Duration,
+    requests: Arc<AtomicU16>,
+) {
     let port = listener.local_addr().unwrap().port();
     loop {
         let (socket, _) = listener.accept().await.unwrap();
         let status = status.clone();
+        let requests = requests.clone();
         tokio::spawn(async move {
             let mut r = BufReader::new(socket);
             let mut headers = String::new();
@@ -539,6 +564,7 @@ async fn mock_node(listener: TcpListener, status: Arc<AtomicU16>, delay: Duratio
             assert!(headers.contains(&format!("host: test.invalid:{port}\r\n")));
             assert!(headers.contains("user-agent: xboxdownload\r\n"));
             assert!(headers.contains("range: bytes=0-1048575\r\n"));
+            requests.fetch_add(1, Ordering::Relaxed);
             let status = status.load(Ordering::Relaxed);
             if status == 0 {
                 sleep(Duration::from_secs(5)).await;
@@ -580,9 +606,20 @@ async fn speedtest_ranks_body_bytes_rejects_error_pages_and_cancels() {
         .unwrap();
     let v4 = Arc::new(AtomicU16::new(206));
     let v6 = Arc::new(AtomicU16::new(200));
-    tokio::spawn(mock_node(ipv4, v4.clone(), Duration::from_millis(15)));
-    tokio::spawn(mock_node(ipv6, v6.clone(), Duration::from_millis(170)));
-    let d=Daemon::start(json!({"groups":{"xbox_cn1":{"ip_family":"dual","custom_test_url":format!("http://test.invalid:{port}/probe?q=1")}},"speedtest":{"download_range_mb":1,"download_timeout_secs":3}})).await;
+    let requests = Arc::new(AtomicU16::new(0));
+    tokio::spawn(mock_node(
+        ipv4,
+        v4.clone(),
+        Duration::from_millis(15),
+        requests.clone(),
+    ));
+    tokio::spawn(mock_node(
+        ipv6,
+        v6.clone(),
+        Duration::from_millis(170),
+        requests.clone(),
+    ));
+    let d=Daemon::start(json!({"groups":{"xbox_cn1":{"ip_family":"dual","custom_test_url":format!("http://test.invalid:{port}/probe?q=1")}},"speedtest":{"download_range_mb":1,"download_timeout_secs":3,"prefilter_top_n":1}})).await;
     std::fs::write(
         d.dir.path().join("IP.XboxCn1.txt"),
         "XboxCn1\n127.0.0.1 (fast)\n::1 (slow)\n",
@@ -598,6 +635,11 @@ async fn speedtest_ranks_body_bytes_rejects_error_pages_and_cancels() {
     assert!(rows[0]["speed_mbps"].as_f64().unwrap() > rows[1]["speed_mbps"].as_f64().unwrap() * 2.);
     assert_eq!(rows[0]["http_status"], 206);
     assert_eq!(rows[1]["http_status"], 200);
+    // With both incumbents on the shortlist, each receives one GET per run.
+    assert_eq!(requests.load(Ordering::Relaxed), 2);
+    d.data("speedtest_start", opt.clone()).await;
+    assert_eq!(finished(&d).await["stage"], "completed");
+    assert_eq!(requests.load(Ordering::Relaxed), 4);
     v4.store(403, Ordering::Relaxed);
     v6.store(500, Ordering::Relaxed);
     d.data("speedtest_start", opt.clone()).await;
@@ -674,5 +716,180 @@ async fn apply_hook_receives_both_families_and_invalid_updates_are_atomic() {
     d.expected("assets1.xboxlive.cn", T::AAAA, Some("2001:db8::41"))
         .await;
     assert_eq!(std::fs::read_to_string(receipt).unwrap(), args);
+    d.stop("-TERM").await;
+}
+
+#[tokio::test]
+async fn failed_hook_restores_both_dns_records_and_apply_defaults_to_empty() {
+    let mut d=Daemon::start(json!({"groups":{"xbox_cn1":{"ip_family":"dual","selected_ipv4":"192.0.2.41","selected_ipv6":"2001:db8::41"}}})).await;
+    let hook = d.dir.path().join("apply-ip");
+    std::fs::write(&hook, "#!/bin/sh\nexit 5\n").unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o700)).unwrap();
+    d.config["runtime"]["apply_hook"] = json!(hook);
+    d.reload().await;
+    let reply = d
+        .rpc(
+            "apply_ip",
+            json!({"group":"xbox_cn1","ipv4":"192.0.2.42","ipv6":"2001:db8::42"}),
+        )
+        .await;
+    assert_eq!(reply["ok"], false);
+    assert!(reply["error"].as_str().unwrap().contains("exit"));
+    let status = d.data("status", json!({})).await;
+    assert_eq!(status["groups"]["xbox_cn1"]["selected_ipv4"], "192.0.2.41");
+    assert_eq!(
+        status["groups"]["xbox_cn1"]["selected_ipv6"],
+        "2001:db8::41"
+    );
+    d.expected("assets1.xboxlive.cn", T::A, Some("192.0.2.41"))
+        .await;
+    d.expected("assets1.xboxlive.cn", T::AAAA, Some("2001:db8::41"))
+        .await;
+    std::fs::write(&hook, "#!/bin/sh\nexit 0\n").unwrap();
+    for params in [
+        json!({"group":"xbox_cn1","ipv6":"2001:db8::42"}),
+        json!({"group":"xbox_cn1","ipv4":"192.0.2.42"}),
+        json!({"group":"xbox_cn1"}),
+    ] {
+        let result = d.data("apply_ip", params.clone()).await;
+        for key in ["ipv4", "ipv6"] {
+            assert_eq!(result[key], params[key].as_str().unwrap_or(""));
+        }
+    }
+    d.stop("-TERM").await;
+}
+
+#[tokio::test]
+async fn custom_lists_survive_a_cache_change_and_filter_case_insensitively() {
+    let mut d = Daemon::start(json!({})).await;
+    let persistent = d.dir.path().join("persistent");
+    d.config["runtime"]["custom_dir"] = json!(persistent);
+    d.reload().await;
+    let body = "192.0.2.111\t(CuStOm Carrier)\n";
+    d.data("save_custom_ips", json!({"group":"xbox_cn1","text":body}))
+        .await;
+    assert_eq!(
+        std::fs::read_to_string(persistent.join("custom.xbox_cn1.txt")).unwrap(),
+        body
+    );
+    assert!(!d.dir.path().join("custom.xbox_cn1.txt").exists());
+    d.config["runtime"]["cache_dir"] = json!(d.dir.path().join("fresh-cache"));
+    d.reload().await;
+    let list = d
+        .data(
+            "list_ips",
+            json!({"group":"xbox_cn1","filter_keyword":"custom CARRIER"}),
+        )
+        .await;
+    assert_eq!(list["custom_text"], body);
+    assert_eq!(list["total"], 1);
+    assert_eq!(list["ips"][0]["ip"], "192.0.2.111");
+    d.stop("-TERM").await;
+}
+
+#[tokio::test]
+async fn dnsmasq_delegates_only_routed_groups_and_normalizes_wildcard_listeners() {
+    let mut d = Daemon::start(json!({"groups":{
+        "xbox_cn1":{"ip_family":"ipv6","use_akamai_fallback":true},
+        "xbox_cn2":{"enabled":false,"selected_ipv4":"192.0.2.70"},
+        "akamai":{"enabled":true,"selected_ipv4":"192.0.2.71"}
+    }}))
+    .await;
+    async fn fragment(d: &Daemon) -> String {
+        d.write_config();
+        let out = Command::new(BIN)
+            .args(["print-dnsmasq", "--config"])
+            .arg(d.dir.path().join("config.json"))
+            .output()
+            .await
+            .unwrap();
+        assert!(out.status.success());
+        String::from_utf8(out.stdout).unwrap()
+    }
+    for (bind, target) in [("0.0.0.0", "127.0.0.1"), ("::", "::1")] {
+        d.config["dns"]["bind"] = bind.into();
+        let snippet = fragment(&d).await;
+        assert_eq!(snippet.lines().count(), 16);
+        let suffix = format!("/{target}#{}", d.dns.port());
+        assert!(snippet.lines().all(|line| line.ends_with(&suffix)));
+        assert!(!snippet.contains("dl.delivery.mp.microsoft.com"));
+        assert!(!snippet.contains("assets1.xboxlive.cn"));
+    }
+    d.config["dns"]["bind"] = "127.0.0.1".into();
+    d.config["groups"]["xbox_app"]["use_akamai_fallback"] = true.into();
+    d.reload().await;
+    let snippet = fragment(&d).await;
+    assert_eq!(snippet.lines().count(), 19);
+    assert!(snippet.contains("server=/dl.delivery.mp.microsoft.com/"));
+    d.expected("dl.delivery.mp.microsoft.com", T::A, Some("192.0.2.71"))
+        .await;
+    d.config["groups"]["akamai"]["enabled"] = false.into();
+    assert_eq!(fragment(&d).await.lines().count(), 16);
+    d.config["groups"]["xbox_app"]["selected_ipv4"] = "192.0.2.72".into();
+    d.reload().await;
+    assert_eq!(fragment(&d).await.lines().count(), 19);
+    d.expected("dl.delivery.mp.microsoft.com", T::A, Some("192.0.2.72"))
+        .await;
+    d.stop("-TERM").await;
+}
+
+#[tokio::test]
+async fn router_self_check_includes_the_active_dnsmasq_and_alias_paths() {
+    let d = Daemon::start(
+        json!({"dns":{"mode":"dnsmasq"},"http":{"mode":"alias_ip","redirect_ip":"127.0.0.1"}}),
+    )
+    .await;
+    let data = d.data("self_check", json!({})).await;
+    let checks = data["checks"].as_array().unwrap();
+    assert_eq!(checks.len(), 7);
+    assert!(checks[..5].iter().all(|c| c["passed"] == true));
+    assert_eq!(checks[5]["name"], "dnsmasq_redirect_a");
+    assert_eq!(checks[6]["name"], "http_alias_redirect");
+    assert_eq!(
+        data["all_passed"],
+        checks.iter().all(|c| c["passed"] == true)
+    );
+    d.stop("-TERM").await;
+}
+
+#[tokio::test]
+async fn concurrent_reload_reads_the_selection_persisted_by_the_hook() {
+    let mut d = Daemon::start(json!({})).await;
+    let hook = d.dir.path().join("apply-ip");
+    let path = d.dir.path().join("config.json");
+    let pending = d.dir.path().join("next.json");
+    let entered = d.dir.path().join("hook-running");
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\ntouch '{}'\nsleep 0.4\nmv '{}' '{}'\n",
+            entered.display(),
+            pending.display(),
+            path.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o700)).unwrap();
+    d.config["runtime"]["apply_hook"] = json!(hook);
+    d.reload().await;
+    d.config["groups"]["xbox_cn1"]["selected_ipv4"] = "192.0.2.63".into();
+    std::fs::write(&pending, d.config.to_string()).unwrap();
+    // Only the hook publishes the new runtime file. Reading beforehand would get ENOENT.
+    std::fs::remove_file(&path).unwrap();
+    tokio::join!(
+        d.data("apply_ip", json!({"group":"xbox_cn1","ipv4":"192.0.2.63"})),
+        async {
+            timeout(Duration::from_secs(2), async {
+                while !entered.exists() {
+                    sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .unwrap();
+            d.data("reload", json!({})).await
+        }
+    );
+    d.expected("assets1.xboxlive.cn", T::A, Some("192.0.2.63"))
+        .await;
     d.stop("-TERM").await;
 }
