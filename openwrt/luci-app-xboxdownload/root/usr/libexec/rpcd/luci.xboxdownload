@@ -73,9 +73,111 @@ suggest_alias() {
 	json_dump
 }
 
+suggest_upstream_dns() {
+	# LuCI's ucode runtime provides inet_pton/inet_ntop for address comparison.
+	ucode - 2>/dev/null <<'UCODE' || error 'Upstream DNS detection failed'
+import * as fs from 'fs';
+
+function readCommand(command) {
+	let pipe = fs.popen(command);
+	if (!pipe) return null;
+	let output = pipe.read('all');
+	return pipe.close() == 0 ? trim(output || '') : null;
+}
+
+function canonical(ip) {
+	let bytes = iptoarr(ip);
+	if (!bytes) return null;
+	if (length(bytes) == 16 && join(':', slice(bytes, 0, 12)) == '0:0:0:0:0:0:0:0:0:0:255:255')
+		bytes = slice(bytes, 12);
+	return arrtoip(bytes);
+}
+
+function portNumber(value) {
+	return value && match(value, /^0*[1-9][0-9]{0,4}$/) ? int(value, 10) : 0;
+}
+
+let interfaces = readCommand('ip -o addr show');
+let router = {};
+for (let line in split(interfaces || '', '\n')) {
+	let m = match(line, /[[:space:]]inet6?[[:space:]]+([^/[:space:]]+)\//);
+	let addr = m ? canonical(m[1]) : null;
+	if (addr) router[addr] = true;
+}
+if (!length(router)) exit(1);
+let bind = canonical(readCommand('uci -q get xboxdownload.main.dns_bind'));
+if (bind) router[bind] = true;
+let listen = portNumber(readCommand('uci -q get xboxdownload.main.dns_port')) || 5353;
+let smart = readCommand("uci -q get 'smartdns.@smartdns[0].enabled'") == '1'
+	? portNumber(readCommand("uci -q get 'smartdns.@smartdns[0].port'")) : 0;
+let nearby = [], others = [], seen = {}, smartReferenced = false;
+
+function add(ip, port, source, service) {
+	let addr = canonical(ip);
+	if (!addr || addr == '::' || addr == '0.0.0.0' || !port || port > 65535) return;
+	let localAddr = router[addr] || addr == '::1' || index(addr, '127.') == 0;
+	if (localAddr && (port == 53 || port == listen)) return;
+	let endpoint = (index(addr, ':') >= 0 ? '[' + addr + ']' : addr) + ':' + port;
+	if (seen[endpoint] || system(['/sbin/validate_data', 'ipaddr', ip]) != 0 ||
+	    system(['/sbin/validate_data', 'port', '' + port]) != 0) return;
+	seen[endpoint] = true;
+	if (source == 'dnsmasq_upstream' && (addr == '127.0.0.1' || addr == '::1') && port == smart) {
+		service = 'SmartDNS';
+		smartReferenced = true;
+	}
+	let entry = { address: endpoint, source };
+	if (service) entry.service = service;
+	push(localAddr ? nearby : others, entry);
+}
+
+function dnsmasqServer(value) {
+	if (!value || substr(value, 0, 1) == '/' || value == '#') return;
+	let parts = split(split(value, '@')[0], '#');
+	if (length(parts) > 2) return;
+	let ip = parts[0];
+	if (substr(ip, 0, 1) == '[' && substr(ip, -1) == ']' && index(ip, ':') >= 0)
+		ip = substr(ip, 1, length(ip) - 2);
+	add(ip, length(parts) == 2 ? portNumber(parts[1]) : 53, 'dnsmasq_upstream');
+}
+
+let files = fs.glob('/var/etc/dnsmasq.conf.*');
+if (length(files)) {
+	for (let path in files) {
+		let file = fs.open(path);
+		if (!file) continue;
+		let line;
+		while ((line = file.read('line')) != null) {
+			let m = match(trim(line), /^server=([^[:space:]]+)([[:space:]]+#.*)?$/);
+			if (m) dnsmasqServer(m[1]);
+		}
+		file.close();
+	}
+} else {
+	let servers = readCommand("uci -q get 'dhcp.@dnsmasq[0].server'");
+	for (let server in split(servers || '', /[[:space:]]+/)) dnsmasqServer(server);
+}
+if (smart && smart != 53 && !smartReferenced) add('127.0.0.1', smart, 'local_service', 'SmartDNS');
+
+let resolv = fs.open('/tmp/resolv.conf.d/resolv.conf.auto') || fs.open('/tmp/resolv.conf.auto');
+if (resolv) {
+	let line;
+	while ((line = resolv.read('line')) != null) {
+		let m = match(trim(line), /^nameserver[[:space:]]+([^[:space:]]+)/);
+		if (m) add(m[1], 53, 'wan_dns');
+	}
+	resolv.close();
+}
+add('223.5.5.5', 53, 'public', 'AliDNS');
+add('119.29.29.29', 53, 'public', 'DNSPod');
+add('1.1.1.1', 53, 'public', 'Cloudflare');
+add('8.8.8.8', 53, 'public', 'Google');
+print({ candidates: [ ...nearby, ...others ] }, '\n');
+UCODE
+}
+
 if [ "$1" = list ]; then
 	cat <<'JSON'
-{"status":{},"logs":{"limit":0},"speedtest_start":{"group":"","ip_family":"","filter_keyword":"","auto_apply":false},"speedtest_status":{},"speedtest_cancel":{},"apply_ip":{"group":"","ipv4":"","ipv6":""},"sync_ips":{"mirror":"","custom_base":""},"list_ips":{"group":"","ip_family":"","filter_keyword":""},"save_custom_ips":{"group":"","text":""},"self_check":{},"suggest_alias_ip":{"lan_device":""},"service_action":{"action":""}}
+{"status":{},"logs":{"limit":0},"speedtest_start":{"group":"","ip_family":"","filter_keyword":"","auto_apply":false},"speedtest_status":{},"speedtest_cancel":{},"apply_ip":{"group":"","ipv4":"","ipv6":""},"sync_ips":{"mirror":"","custom_base":""},"list_ips":{"group":"","ip_family":"","filter_keyword":""},"save_custom_ips":{"group":"","text":""},"self_check":{},"suggest_alias_ip":{"lan_device":""},"suggest_upstream_dns":{},"service_action":{"action":""}}
 JSON
 	exit 0
 fi
@@ -155,6 +257,10 @@ EOF
 		json_init
 		json_add_string mirror "$mirror"
 		json_add_string custom_base "$base"
+		;;
+	suggest_upstream_dns)
+		suggest_upstream_dns
+		exit 0
 		;;
 	suggest_alias_ip)
 		field lan_device string br-lan

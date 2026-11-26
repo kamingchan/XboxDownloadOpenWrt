@@ -93,6 +93,7 @@ return baseclass.extend({
 	apply_ip: method('apply_ip', [ 'group', 'ipv4', 'ipv6' ]), sync_ips: method('sync_ips', [ 'mirror', 'custom_base' ]),
 	list_ips: method('list_ips', [ 'group', 'ip_family', 'filter_keyword' ]),
 	save_custom_ips: method('save_custom_ips', [ 'group', 'text' ]), self_check: method('self_check'),
+	suggest_upstream_dns: method('suggest_upstream_dns'),
 	suggest_alias_ip: method('suggest_alias_ip', [ 'lan_device' ]), service_action: method('service_action', [ 'action' ]),
 	groups: groups, families: families, rules: rules, text: text, button: button, notify: notify, table: table,
 	stylesheet: function() { return E('link', { rel: 'stylesheet', href: L.resource('xboxdownload.css') }); },

@@ -13,6 +13,12 @@ msgstr ""
 msgid "%dh %dm"
 msgstr "%d 小时 %d 分钟"
 
+msgid "%s (%s)"
+msgstr "%s（%s）"
+
+msgid "%s — %s"
+msgstr "%s — %s"
+
 msgid "302 target"
 msgstr "302 目标地址"
 
@@ -27,6 +33,9 @@ msgstr "地址族"
 
 msgid "Addresses"
 msgstr "地址数"
+
+msgid "AliDNS"
+msgstr "阿里 DNS"
 
 msgid "All"
 msgstr "全部"
@@ -97,6 +106,9 @@ msgstr "请先配置 LAN 辅助地址，再启用服务。"
 msgid "Client IP"
 msgstr "客户端 IP"
 
+msgid "Cloudflare"
+msgstr "Cloudflare"
+
 msgid "Completed"
 msgstr "已完成"
 
@@ -160,6 +172,9 @@ msgstr "DNS 端口"
 msgid "DNS queries"
 msgstr "DNS 查询数"
 
+msgid "DNSPod"
+msgstr "DNSPod"
+
 msgid "Defaults to the LAN address. Clients must reach the redirect listener on port 80."
 msgstr "默认使用 LAN 地址。客户端对目标地址 80 端口的请求必须能到达重定向服务。"
 
@@ -171,6 +186,12 @@ msgstr "已延后"
 
 msgid "Details"
 msgstr "详情"
+
+msgid "Detect upstream DNS"
+msgstr "检测上游 DNS"
+
+msgid "Detected upstream DNS servers: %s. Selected %s. Save and apply to use it."
+msgstr "检测到上游 DNS：%s。已选中 %s，保存并应用后生效。"
 
 msgid "Disabled"
 msgstr "已关闭"
@@ -252,6 +273,9 @@ msgstr "已过滤的 AAAA 查询"
 
 msgid "Find an unused IP"
 msgstr "查找空闲辅助地址"
+
+msgid "Google"
+msgstr "Google"
 
 msgid "Group"
 msgstr "分组"
@@ -379,6 +403,9 @@ msgstr "正在加载候选节点"
 msgid "Loading…"
 msgstr "正在加载…"
 
+msgid "Local DNS service"
+msgstr "本机 DNS 服务"
+
 msgid "Location / carrier"
 msgstr "归属地 / 运营商"
 
@@ -427,6 +454,12 @@ msgstr "暂无测速结果。"
 msgid "No redirects recorded."
 msgstr "暂无重定向记录。"
 
+msgid "No router or WAN upstream DNS found. Choose a public DNS server from the list or enter a custom address."
+msgstr "未发现路由器或 WAN 上游 DNS。可从列表选择公共 DNS，也可手动输入地址。"
+
+msgid "No upstream DNS candidates found. Enter a custom address."
+msgstr "未发现上游 DNS 候选项，请手动输入地址。"
+
 msgid "Node speed test"
 msgstr "节点测速"
 
@@ -441,6 +474,9 @@ msgstr "路径"
 
 msgid "Preferred hour (0–23, or -1 for any hour)"
 msgstr "首选整点（0–23，-1 表示不限）"
+
+msgid "Public DNS"
+msgstr "公共 DNS"
 
 msgid "Recent HTTP 302 redirects"
 msgstr "实时 HTTP 302 命中日志"
@@ -520,6 +556,9 @@ msgstr "设置"
 msgid "Singapore"
 msgstr "新加坡"
 
+msgid "SmartDNS"
+msgstr "SmartDNS"
+
 msgid "Sort results"
 msgstr "结果排序"
 
@@ -574,6 +613,9 @@ msgstr "时间"
 msgid "Unknown method"
 msgstr "未知方法"
 
+msgid "Upstream DNS detection failed"
+msgstr "检测上游 DNS 失败"
+
 msgid "Uptime"
 msgstr "运行时长"
 
@@ -586,6 +628,9 @@ msgstr "请使用独立的上游 DNS。指向本机 DNS 入口会产生循环，
 msgid "Version"
 msgstr "版本"
 
+msgid "WAN DNS"
+msgstr "WAN DNS"
+
 msgid "When this group has no selected address, use a compatible address from the enabled Akamai group."
 msgstr "当本组没有选定可用地址时，使用已启用的 Akamai 分组中与本组地址族匹配的优选 IP。"
 
@@ -597,3 +642,6 @@ msgstr "Xbox 内容域名重定向"
 
 msgid "Yes"
 msgstr "是"
+
+msgid "dnsmasq upstream"
+msgstr "dnsmasq 上游"

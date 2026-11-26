@@ -41,7 +41,7 @@ opkg install /tmp/luci-i18n-xboxdownload-zh-cn_*_all.ipk
 /etc/init.d/rpcd reload
 ```
 
-3. 重新登录 LuCI → **服务 → Xbox 下载 → 设置**。保留默认 dnsmasq 分流及 LAN 辅助 IP 模式，核对网桥名称，点击 **推荐 LAN 地址**。确认地址位于 DHCP 地址池之外，且未分配给休眠设备。勾选 **启用服务**，保存并应用。回退 DNS 应指向独立解析器，以免形成循环。
+3. 重新登录 LuCI → **服务 → Xbox 下载 → 设置**。保留默认 dnsmasq 分流及 LAN 辅助 IP 模式，核对网桥名称，点击 **推荐 LAN 地址**。确认地址位于 DHCP 地址池之外，且未分配给休眠设备。点击 **检测上游 DNS** 可填入路由器的首选上游（例如本机 SmartDNS）；也可从列表选择 WAN 或公共 DNS，或手动输入 `IP:端口` / `[IPv6]:端口`。勾选 **启用服务**，保存并应用。
 4. 在 **总览** 运行端到端自检。默认的 dnsmasq + 辅助 IP 模式共有七项检查。除三项本地 DNS 和两项本地 HTTP 检查外，还通过 dnsmasq 的 53 端口验证解析结果，并通过辅助 IP 的 80 端口验证 DNAT 后的 302。这两项分别随对应模式启用。随后在 Xbox 或 PC 发起下载，在命中日志中核对客户端 IP、Host、路径与目标，区分真实下载和路由器自检产生的记录。
 
 ### 手动部署二进制
@@ -58,7 +58,7 @@ scp -O -r xboxdownloadd-aarch64-unknown-linux-musl data openwrt/xboxdownload/fil
 
 ```sh
 cd /tmp/xbd-install
-opkg update && opkg install nftables-json ca-bundle flock
+opkg update && opkg install nftables-json ca-bundle
 mkdir -p /usr/bin /usr/libexec/xboxdownload /usr/share/xboxdownload/ip /etc/hotplug.d/iface /etc/xboxdownload
 cp xboxdownloadd-aarch64-unknown-linux-musl /usr/bin/xboxdownloadd
 cp files/xboxdownload.init /etc/init.d/xboxdownload
@@ -108,7 +108,7 @@ SDK=/path/to/openwrt-sdk
 rustup target add aarch64-unknown-linux-musl
 cd "$SDK"
 ./scripts/feeds update base packages luci
-./scripts/feeds install ca-bundle nftables-json flock luci-base
+./scripts/feeds install ca-bundle nftables-json luci-base
 ln -s "$repo/openwrt/xboxdownload" package/xboxdownload
 ln -s "$repo/openwrt/luci-app-xboxdownload" package/luci-app-xboxdownload
 cat >> .config <<'EOF'

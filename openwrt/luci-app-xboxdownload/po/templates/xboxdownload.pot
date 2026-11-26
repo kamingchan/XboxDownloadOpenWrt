@@ -13,6 +13,12 @@ msgstr ""
 msgid "%dh %dm"
 msgstr ""
 
+msgid "%s (%s)"
+msgstr ""
+
+msgid "%s — %s"
+msgstr ""
+
 msgid "302 target"
 msgstr ""
 
@@ -26,6 +32,9 @@ msgid "Address family"
 msgstr ""
 
 msgid "Addresses"
+msgstr ""
+
+msgid "AliDNS"
 msgstr ""
 
 msgid "All"
@@ -97,6 +106,9 @@ msgstr ""
 msgid "Client IP"
 msgstr ""
 
+msgid "Cloudflare"
+msgstr ""
+
 msgid "Completed"
 msgstr ""
 
@@ -160,6 +172,9 @@ msgstr ""
 msgid "DNS queries"
 msgstr ""
 
+msgid "DNSPod"
+msgstr ""
+
 msgid "Defaults to the LAN address. Clients must reach the redirect listener on port 80."
 msgstr ""
 
@@ -170,6 +185,12 @@ msgid "Deferred"
 msgstr ""
 
 msgid "Details"
+msgstr ""
+
+msgid "Detect upstream DNS"
+msgstr ""
+
+msgid "Detected upstream DNS servers: %s. Selected %s. Save and apply to use it."
 msgstr ""
 
 msgid "Disabled"
@@ -251,6 +272,9 @@ msgid "Filtered AAAA queries"
 msgstr ""
 
 msgid "Find an unused IP"
+msgstr ""
+
+msgid "Google"
 msgstr ""
 
 msgid "Group"
@@ -379,6 +403,9 @@ msgstr ""
 msgid "Loading…"
 msgstr ""
 
+msgid "Local DNS service"
+msgstr ""
+
 msgid "Location / carrier"
 msgstr ""
 
@@ -427,6 +454,12 @@ msgstr ""
 msgid "No redirects recorded."
 msgstr ""
 
+msgid "No router or WAN upstream DNS found. Choose a public DNS server from the list or enter a custom address."
+msgstr ""
+
+msgid "No upstream DNS candidates found. Enter a custom address."
+msgstr ""
+
 msgid "Node speed test"
 msgstr ""
 
@@ -440,6 +473,9 @@ msgid "Path"
 msgstr ""
 
 msgid "Preferred hour (0–23, or -1 for any hour)"
+msgstr ""
+
+msgid "Public DNS"
 msgstr ""
 
 msgid "Recent HTTP 302 redirects"
@@ -520,6 +556,9 @@ msgstr ""
 msgid "Singapore"
 msgstr ""
 
+msgid "SmartDNS"
+msgstr ""
+
 msgid "Sort results"
 msgstr ""
 
@@ -574,6 +613,9 @@ msgstr ""
 msgid "Unknown method"
 msgstr ""
 
+msgid "Upstream DNS detection failed"
+msgstr ""
+
 msgid "Uptime"
 msgstr ""
 
@@ -586,6 +628,9 @@ msgstr ""
 msgid "Version"
 msgstr ""
 
+msgid "WAN DNS"
+msgstr ""
+
 msgid "When this group has no selected address, use a compatible address from the enabled Akamai group."
 msgstr ""
 
@@ -596,4 +641,7 @@ msgid "Xbox content redirect"
 msgstr ""
 
 msgid "Yes"
+msgstr ""
+
+msgid "dnsmasq upstream"
 msgstr ""

@@ -9,7 +9,8 @@
 					"speedtest_status",
 					"list_ips",
 					"self_check",
-					"suggest_alias_ip"
+					"suggest_alias_ip",
+					"suggest_upstream_dns"
 				]
 			},
 			"uci": [

@@ -41,7 +41,7 @@ opkg install /tmp/luci-i18n-xboxdownload-zh-cn_*_all.ipk
 /etc/init.d/rpcd reload
 ```
 
-3. Sign in to LuCI again and open **Services → Xbox Download → Settings**. Keep automatic dnsmasq forwarding and LAN alias mode. Check the bridge name and click **Suggest LAN address**. Reserve the address outside the DHCP pool and check that no sleeping device owns it. Select **Enable service**, then save and apply. Use an independent fallback DNS server to avoid a resolver loop.
+3. Sign in to LuCI again and open **Services → Xbox Download → Settings**. Keep automatic dnsmasq forwarding and LAN alias mode. Check the bridge name and click **Suggest LAN address**. Reserve the address outside the DHCP pool and check that no sleeping device owns it. Click **Detect upstream DNS** to fill in the first detected upstream, such as a local SmartDNS service. You can also select a WAN or public DNS server, or enter a custom `IP:port` or `[IPv6]:port`. Select **Enable service**, then save and apply.
 4. Run the end-to-end check on **Overview**. The default dnsmasq and LAN alias configuration runs seven checks. In addition to three local DNS and two local HTTP checks, it queries dnsmasq on port 53 and tests the 302 through DNAT on alias port 80. These last two checks appear when their respective modes are active. Start a real download from an Xbox or PC, then check the client IP, host, path and target in the redirect log. The client IP distinguishes console traffic from the router’s self-checks.
 
 ### Deploy a standalone executable
@@ -58,7 +58,7 @@ Use the [core package install manifest](openwrt/xboxdownload/Makefile) for the s
 
 ```sh
 cd /tmp/xbd-install
-opkg update && opkg install nftables-json ca-bundle flock
+opkg update && opkg install nftables-json ca-bundle
 mkdir -p /usr/bin /usr/libexec/xboxdownload /usr/share/xboxdownload/ip /etc/hotplug.d/iface /etc/xboxdownload
 cp xboxdownloadd-aarch64-unknown-linux-musl /usr/bin/xboxdownloadd
 cp files/xboxdownload.init /etc/init.d/xboxdownload
@@ -108,7 +108,7 @@ SDK=/path/to/openwrt-sdk
 rustup target add aarch64-unknown-linux-musl
 cd "$SDK"
 ./scripts/feeds update base packages luci
-./scripts/feeds install ca-bundle nftables-json flock luci-base
+./scripts/feeds install ca-bundle nftables-json luci-base
 ln -s "$repo/openwrt/xboxdownload" package/xboxdownload
 ln -s "$repo/openwrt/luci-app-xboxdownload" package/luci-app-xboxdownload
 cat >> .config <<'EOF'

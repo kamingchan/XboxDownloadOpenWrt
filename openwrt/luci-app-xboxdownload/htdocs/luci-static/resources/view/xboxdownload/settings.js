@@ -19,6 +19,15 @@ function webURL(id, value) {
 	try { var u = new URL(value); if (/^https?:$/.test(u.protocol) && u.hostname) return true; } catch (e) {}
 	return _('Enter an HTTP or HTTPS URL.');
 }
+function upstreamLabel(candidate) {
+	var sources = { dnsmasq_upstream: _('dnsmasq upstream'), local_service: _('Local DNS service'),
+		wan_dns: _('WAN DNS'), public: _('Public DNS') };
+	var services = { SmartDNS: _('SmartDNS'), AliDNS: _('AliDNS'), DNSPod: _('DNSPod'),
+		Cloudflare: _('Cloudflare'), Google: _('Google') };
+	var source = sources[candidate.source], service = services[candidate.service];
+	var label = service && candidate.source !== 'public' ? _('%s (%s)').format(service, source) : service || source;
+	return label ? _('%s — %s').format(candidate.address, label) : candidate.address;
+}
 function copy(area) {
 	if (navigator.clipboard && window.isSecureContext)
 		return navigator.clipboard.writeText(area.value).then(function() { xb.notify(_('Copied.')); });
@@ -28,8 +37,10 @@ function copy(area) {
 }
 
 return view.extend({
-	load: function() { return uci.load('xboxdownload'); },
-	render: function() {
+	load: function() {
+		return Promise.all([ uci.load('xboxdownload'), xb.suggest_upstream_dns().catch(function() { return { candidates: [] }; }) ]);
+	},
+	render: function(data) {
 		var m = new form.Map('xboxdownload', _('Xbox Download'));
 		var s = m.section(form.NamedSection, 'main', 'main');
 		s.tab('network', _('Basic settings and network'));
@@ -44,8 +55,31 @@ return view.extend({
 			{ dnsmasq: _('Automatic dnsmasq forwarding'), manual: _('Manual forwarding') });
 		var bind = main(form.Value, 'dns_bind', _('DNS bind address'), 'ip4addr(1)', '127.0.0.1');
 		var port = main(form.Value, 'dns_port', _('DNS port'), 'and(port,min(1))', '5353');
-		main(form.Value, 'upstream_dns', _('Fallback DNS server'), 'ipaddrport(1)', '223.5.5.5:53',
+		var upstream = main(form.Value, 'upstream_dns', _('Fallback DNS server'), 'ipaddrport(1)', '223.5.5.5:53',
 			_('Use an independent upstream resolver. A loop back to the router DNS listener will prevent startup.'));
+		function upstreamChoices(candidates) {
+			upstream.keylist = []; upstream.vallist = [];
+			candidates.forEach(function(c) { upstream.value(c.address, upstreamLabel(c)); });
+		}
+		upstreamChoices(data[1].candidates);
+		var detect = main(form.Button, '_detect_upstream', '');
+		detect.inputtitle = _('Detect upstream DNS');
+		detect.onclick = function() {
+			return xb.suggest_upstream_dns().then(function(result) {
+				var detected = result.candidates.filter(function(c) { return c.source !== 'public'; });
+				var selected = detected.length ? detected[0].address : upstream.formvalue('main');
+				upstreamChoices(result.candidates);
+				var widget = m.findElement('id', upstream.cbid('main'));
+				widget.replaceWith(upstream.renderWidget('main', 0, selected));
+				if (detected.length)
+					xb.notify(_('Detected upstream DNS servers: %s. Selected %s. Save and apply to use it.').format(
+						detected.map(function(c) { return c.address; }).join(', '), selected));
+				else if (result.candidates.length)
+					xb.notify(_('No router or WAN upstream DNS found. Choose a public DNS server from the list or enter a custom address.'));
+				else
+					xb.notify(_('No upstream DNS candidates found. Enter a custom address.'));
+			}).catch(function(e) { xb.notify(e.message, 'error'); });
+		};
 		main(form.Value, 'dns_ttl', _('DNS TTL (seconds)'), 'uinteger', '60');
 		var blocks = {}, groupSections = {};
 		var snippets = main(form.DummyValue, '_manual', _('Manual DNS rules'));
