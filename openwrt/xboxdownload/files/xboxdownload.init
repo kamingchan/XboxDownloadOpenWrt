@@ -22,6 +22,15 @@ error() {
 	return 1
 }
 
+lock_fd() (
+	remaining=10
+	until flock -n "$1"; do
+		[ "$remaining" -gt 0 ] || return 1
+		sleep 1 || return 1
+		remaining=$((remaining - 1))
+	done
+)
+
 valid_ip() { validate_data "$1" "$2" 2>/dev/null; }
 valid_device() { case "$1" in ''|*[!A-Za-z0-9_.-]*) return 1 ;; esac; }
 valid_port() {
@@ -218,7 +227,7 @@ remove_alias_unlocked() {
 }
 
 remove_alias() {
-	flock -w 10 7 || { error 'Timed out waiting for alias lock'; return 1; }
+	lock_fd 7 || { error 'Timed out waiting for alias lock'; return 1; }
 	remove_alias_unlocked
 } 7>/var/lock/xboxdownload-alias.lock
 
@@ -410,7 +419,7 @@ activate_dns() {
 
 install_alias() {
 	local addresses prev_lan_dev prev_alias_ip
-	flock -w 10 7 || { error 'Timed out waiting for alias lock'; return 1; }
+	lock_fd 7 || { error 'Timed out waiting for alias lock'; return 1; }
 	if [ "$http_mode" != alias_ip ]; then remove_alias_unlocked; return; fi
 	if [ -f "$NETSTATE" ] && read -r prev_lan_dev prev_alias_ip < "$NETSTATE" &&
 		[ "$prev_lan_dev" = "$lan_device" ] && [ "$prev_alias_ip" = "$alias_ip" ] &&
@@ -447,7 +456,7 @@ setup_network() {
 # Take the snapshot under the same lock for every writer. Release it before
 # procd registration or daemon RPC, so the apply hook can render concurrently.
 read_and_render() {
-	flock -w 10 8 || { error 'Timed out waiting for config renderer'; return 1; }
+	lock_fd 8 || { error 'Timed out waiting for config renderer'; return 1; }
 	config_load xboxdownload || return 1
 	config_get_bool enabled main enabled 0
 	if [ "$enabled" = 0 ] && [ "$1" != sync ]; then return 0; fi
@@ -458,7 +467,7 @@ sync_config() { read_and_render sync; }
 
 restore_alias() {
 	local enabled mode configured_ip configured_dev prev_lan_dev prev_alias_ip devices addresses
-	flock -w 10 7 || { error 'Timed out waiting for alias lock'; return 1; }
+	lock_fd 7 || { error 'Timed out waiting for alias lock'; return 1; }
 	[ -f "$NETSTATE" ] || return 0
 	config_load xboxdownload || return 1
 	config_get_bool enabled main enabled 0

@@ -5,9 +5,18 @@ case "$1" in xbox_cn1|xbox_cn2|xbox_app|akamai) ;; *) exit 2 ;; esac
 [ -z "$2" ] || validate_data ip4addr "$2" 2>/dev/null || exit 2
 [ -z "$3" ] || validate_data ip6addr "$3" 2>/dev/null || exit 2
 
+lock_fd() (
+	remaining=10
+	until flock -n "$1"; do
+		[ "$remaining" -gt 0 ] || return 1
+		sleep 1 || return 1
+		remaining=$((remaining - 1))
+	done
+)
+
 # Serialize winners and discard private UCI deltas if a write fails midway.
 exec 9>/var/lock/xboxdownload-apply.lock || exit 1
-flock -w 10 9 || exit 1
+lock_fd 9 || { echo 'Timed out waiting for apply lock' >&2; exit 1; }
 transaction=$(mktemp -d /tmp/xboxdownload-uci.XXXXXX) || exit 1
 trap 'rm -rf "$transaction"' EXIT
 trap 'exit 1' HUP INT TERM

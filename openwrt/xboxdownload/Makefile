@@ -28,8 +28,9 @@ define Package/xboxdownload
   CATEGORY:=Network
   TITLE:=Xbox and Microsoft Store download accelerator
   # The ip command is supplied by BusyBox, ip-tiny or ip-full on OpenWrt.
-  # Both nftables variants provide the text CLI. util-linux flock supplies -w.
-  DEPENDS:=+nftables +kmod-nft-nat +flock +ca-bundle
+  # Both nftables variants provide the text CLI. Polling flock -n for a timeout
+  # works with BusyBox and util-linux without a package conflict on BusyBox firmware.
+  DEPENDS:=+nftables +kmod-nft-nat +ca-bundle
 endef
 
 define Package/xboxdownload/conffiles
