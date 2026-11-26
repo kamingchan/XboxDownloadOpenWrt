@@ -4,7 +4,9 @@
 
 [简体中文](README.md) · [English](README_EN.md) · [架构与接口契约](docs/ARCHITECTURE.md) · [部署案例](docs/CASES.md) · [开发指南](docs/DEVELOPMENT.md) · [贡献指南](CONTRIBUTING.md)
 
-![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
+[![CI](https://github.com/kamingchan/XboxDownloadOpenWrt/actions/workflows/ci.yml/badge.svg)](https://github.com/kamingchan/XboxDownloadOpenWrt/actions/workflows/ci.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/kamingchan/XboxDownloadOpenWrt)](https://github.com/kamingchan/XboxDownloadOpenWrt/releases)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 ![OpenWrt 23.05 | 24.10](https://img.shields.io/badge/OpenWrt-23.05%20%7C%2024.10-00B5E2?logo=openwrt&logoColor=white)
 ![Rust](https://img.shields.io/badge/daemon-Rust-orange?logo=rust)
 ![LuCI](https://img.shields.io/badge/UI-LuCI%20JS-2c3e50)
@@ -152,7 +154,7 @@ Xbox / PC ──HTTP:80──► LAN 辅助 IP ──独立 DNAT──► xboxdo
 
 ### 方式一：安装 IPK（推荐）
 
-1. 从仓库 Releases 页面下载同一版本的：
+1. 从 [Releases](https://github.com/kamingchan/XboxDownloadOpenWrt/releases) 页面下载同一版本的：
    - 核心包 `xboxdownload_<版本>_<包架构>.ipk`
    - 界面包 `luci-app-xboxdownload_<版本>_all.ipk`
    - 可选中文包 `luci-i18n-xboxdownload-zh-cn_<版本>_all.ipk`
@@ -399,15 +401,6 @@ ls /tmp/dnsmasq*.d/xboxdownload.conf 2>/dev/null || echo 'dnsmasq clean'
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 开发者 | 构建、交叉编译、SDK 打包、测试与调试 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献者 | Issue / PR 规范与检查清单 |
 | [AGENTS.md](AGENTS.md) | 二次开发的 AI Agent 与开发者 | 仓库布局、架构不变量与验证命令 |
-
-<details>
-<summary>项目信息：推荐的 GitHub About 与 Topics</summary>
-
-**About**：OpenWrt LuCI plugin that accelerates Xbox / Microsoft Store downloads with router-side CDN speed testing and precise dnsmasq DNS forwarding. Rust daemon, zero telemetry. / OpenWrt 路由器 Xbox 下载加速插件：CDN 测速选点 + 精确 DNS 分流。
-
-**Topics**：`openwrt` `luci` `luci-app` `xbox` `xbox-series-x` `xbox-one` `microsoft-store` `game-pass` `download-accelerator` `cdn` `speedtest` `dns` `dnsmasq` `smartdns` `adguardhome` `nftables` `rust` `immortalwrt` `friendlywrt` `router`
-
-</details>
 
 ## 致谢与许可
 

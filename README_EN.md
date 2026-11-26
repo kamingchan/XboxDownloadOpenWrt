@@ -4,7 +4,9 @@
 
 [简体中文](README.md) · [English](README_EN.md) · [Architecture & API contract](docs/ARCHITECTURE.md) · [Deployment cases](docs/CASES.md) · [Development guide](docs/DEVELOPMENT.md) · [Contributing](CONTRIBUTING.md)
 
-![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)
+[![CI](https://github.com/kamingchan/XboxDownloadOpenWrt/actions/workflows/ci.yml/badge.svg)](https://github.com/kamingchan/XboxDownloadOpenWrt/actions/workflows/ci.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/kamingchan/XboxDownloadOpenWrt)](https://github.com/kamingchan/XboxDownloadOpenWrt/releases)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 ![OpenWrt 23.05 | 24.10](https://img.shields.io/badge/OpenWrt-23.05%20%7C%2024.10-00B5E2?logo=openwrt&logoColor=white)
 ![Rust](https://img.shields.io/badge/daemon-Rust-orange?logo=rust)
 ![LuCI](https://img.shields.io/badge/UI-LuCI%20JS-2c3e50)
@@ -152,7 +154,7 @@ Run `opkg print-architecture` to see which package architectures your firmware a
 
 ### Option 1: install IPK packages (recommended)
 
-1. From this repository's Releases page, download matching versions of:
+1. From the [Releases](https://github.com/kamingchan/XboxDownloadOpenWrt/releases) page, download matching versions of:
    - the core package `xboxdownload_<version>_<package-arch>.ipk`
    - the LuCI app `luci-app-xboxdownload_<version>_all.ipk`
    - optionally the Chinese language pack `luci-i18n-xboxdownload-zh-cn_<version>_all.ipk`
@@ -399,15 +401,6 @@ Releases currently ship `.ipk` packages for opkg-based 23.05 and 24.10. On newer
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | Developers | Build, cross-compilation, SDK packaging, testing and debugging |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Contributors | Issue / PR guidelines and checklist |
 | [AGENTS.md](AGENTS.md) | AI agents and developers extending the project | Repository layout, architecture invariants and verification commands |
-
-<details>
-<summary>Project info: suggested GitHub About and Topics</summary>
-
-**About**: OpenWrt LuCI plugin that accelerates Xbox / Microsoft Store downloads with router-side CDN speed testing and precise dnsmasq DNS forwarding. Rust daemon, zero telemetry.
-
-**Topics**: `openwrt` `luci` `luci-app` `xbox` `xbox-series-x` `xbox-one` `microsoft-store` `game-pass` `download-accelerator` `cdn` `speedtest` `dns` `dnsmasq` `smartdns` `adguardhome` `nftables` `rust` `immortalwrt` `friendlywrt` `router`
-
-</details>
 
 ## Credits and license
 
