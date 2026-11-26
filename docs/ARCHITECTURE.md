@@ -309,9 +309,11 @@ When the daemon's auto-scheduler or `apply_ip` RPC selects a new IP, it updates 
 ```
 If the hook fails or times out, the daemon rolls back the in-memory selection to its previous values so memory and persisted UCI never diverge.
 
+**Lock portability**: the init script and the apply hook acquire their locks with a polling loop around `flock -n <fd>` (retry once per second, give up after 10 seconds) instead of `flock -w`. BusyBox `flock` on stock OpenWrt images does not implement `-w`, and depending on the util-linux `flock` package would conflict with BusyBox on some firmware. The core package therefore has no `flock` dependency, and the release workflow does not install a `flock` feed package.
+
 The hook script:
 1. Validates `<group_id>` is in `{xbox_cn1, xbox_cn2, xbox_app, akamai}` and validates IP syntax.
-2. Persists `selected_ipv4` / `selected_ipv6` via `uci set` + `uci commit xboxdownload` (under `flock -w 10`).
+2. Persists `selected_ipv4` / `selected_ipv6` via `uci set` + `uci commit xboxdownload` inside a private UCI delta directory, serialized by `/var/lock/xboxdownload-apply.lock`. If the second write or the JSON re-render fails, the previous pair is restored.
 3. Refreshes `/var/etc/xboxdownload.json` (pure render without calling daemon RPC, avoiding lock contention) so an immediate `SIGHUP` or `procd` respawn reads the newly applied IP.
 4. Sends `SIGHUP` to `dnsmasq` (`killall -HUP dnsmasq 2>/dev/null || true`) to flush cached DNS answers immediately without interrupting active connections. (If a previously empty CDN group just received its first IP, `procd`'s reload trigger asynchronously refreshes the `dnsmasq` fragment once.)
 
@@ -396,7 +398,7 @@ Error:
    - Downloads fresh `IP.XboxCn1.txt`, `IP.XboxCn2.txt`, `IP.XboxApp.txt`, `IP.Akamai.txt`, `IP.AkamaiV2.txt` into `cache_dir`. Returns per-file counts and status.
 8. **`list_ips`** (`params: {"group": "xbox_cn1", "ip_family": "ipv4", "filter_keyword": ""}`)
    - Lists candidate IPs (merged bundled/cached + custom), total count, and raw `custom_text` from `${custom_dir}/custom.<group>.txt` (falls back to `cache_dir` when `custom_dir` is empty).
-9. **`save_custom_ips`** (`params: {"group": "xbox_cn1", "text": "1.2.3.4\t(Custom)\n"}`)
+9. **`save_custom_ips`** (`params: {"group": "xbox_cn1", "text": "192.0.2.1\t(Custom)\n"}`)
    - Saves user custom IPs under `${custom_dir}/custom.<group>.txt` (falls back to `cache_dir` when `custom_dir` is empty).
 10. **`self_check`** (`params: {}`)
     - Executes real end-to-end checks against local DNS & HTTP listeners AND (when active) the router's live `dnsmasq` / `alias_ip:80` path:
@@ -415,7 +417,7 @@ Error:
 
 ## 7. `rpcd` ubus Contract (`luci.xboxdownload`)
 
-The `rpcd` script `/usr/libexec/rpcd/luci.xboxdownload` exposes ubus object `luci.xboxdownload` with methods:
+The `rpcd` script `/usr/libexec/rpcd/luci.xboxdownload` exposes ubus object `luci.xboxdownload` with 13 methods:
 - `status` -> proxies `status` (or returns `{"running": false}` if socket absent)
 - `logs` (`limit`) -> proxies `logs`
 - `speedtest_start` (`group`, `ip_family`, `filter_keyword`, `auto_apply`) -> proxies `speedtest_start` (only forwards optional fields when supplied)
@@ -427,6 +429,18 @@ The `rpcd` script `/usr/libexec/rpcd/luci.xboxdownload` exposes ubus object `luc
 - `save_custom_ips` (`group`, `text`) -> proxies `save_custom_ips`
 - `self_check` -> proxies `self_check`
 - `suggest_alias_ip` (`lan_device`) -> inspects `ip -4 addr show dev <lan_device>`, suggests an unused high IP in the same subnet (checked via `ip addr`, `ip neigh`, and `ping -I <lan_device> -c 1 -W 1`), returns `{"lan_ip": "192.168.1.1", "cidr": "192.168.1.1/24", "suggested_ip": "192.168.1.253", "in_use": false}`
+- `suggest_upstream_dns` (`params: {}`) -> read-only discovery of candidate values for `upstream_dns` (implemented in `ucode`, which LuCI already ships). Returns `{"candidates": [{"address": "127.0.0.1:6053", "source": "dnsmasq_upstream", "service": "SmartDNS"}, ...]}` with router-local candidates first. Sources, in order:
+  - `dnsmasq_upstream`: `server=` lines from the active `/var/etc/dnsmasq.conf.*` (falling back to `dhcp.@dnsmasq[0].server`); domain-scoped `server=/.../` entries are ignored. A loopback upstream on the SmartDNS UCI port is labelled `SmartDNS`.
+  - `local_service`: an enabled SmartDNS (`smartdns.@smartdns[0]`) on a non-53 port that dnsmasq does not already reference.
+  - `wan_dns`: `nameserver` lines from `/tmp/resolv.conf.d/resolv.conf.auto` (or `/tmp/resolv.conf.auto`).
+  - `public`: AliDNS `223.5.5.5`, DNSPod `119.29.29.29`, Cloudflare `1.1.1.1`, Google `8.8.8.8`.
+  - Loop guard: any router-local, loopback or `dns_bind` address on port 53 or on the daemon `dns_port` is dropped, as are `0.0.0.0`, `::` and duplicates. IPv4-mapped IPv6 is canonicalized before comparison. The init script still enforces the same rule at start-up, so a hand-edited UCI value cannot create a loop.
 - `service_action` (`action`: `start|stop|restart|reload`) -> executes `/etc/init.d/xboxdownload <action>`
+
+ACL (`/usr/share/rpcd/acl.d/luci-app-xboxdownload.json`, role `luci-app-xboxdownload`):
+- **read**: `status`, `logs`, `speedtest_status`, `list_ips`, `self_check`, `suggest_alias_ip`, `suggest_upstream_dns`, plus UCI `xboxdownload`.
+- **write**: `speedtest_start`, `speedtest_cancel`, `apply_ip`, `sync_ips`, `save_custom_ips`, `service_action`, plus UCI `xboxdownload`.
+
+Any new method must be added in four places together: the `list` JSON and `call` dispatcher of the rpcd script, the ACL file, the LuCI caller in `xboxdownload.js` / views, and this section.
 
 Note: `xboxdownloadd ctl --socket /var/run/xboxdownload.sock --method <m> --params '<json>'` CLI subcommand is also provided by the Rust binary so `rpcd` does NOT need `socat`, `python3`, or `nc -U` on OpenWrt! It simply invokes `xboxdownloadd ctl ...`, which works cleanly on minimal OpenWrt images with zero extra runtime dependencies!
