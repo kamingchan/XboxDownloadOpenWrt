@@ -1,0 +1,174 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build and publish (e.g. v0.1.0)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  OPENWRT_VERSION: 23.05.5
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  package:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: rockchip/armv8
+            arch: aarch64_generic
+            rust: aarch64-unknown-linux-musl
+            runner: qemu-aarch64
+            sdk_sha256: 33f19d3534b8f6f02984d06f4ca24e7e00e34b14b6b27df20dbc905f881bfa26
+          - target: x86/64
+            arch: x86_64
+            rust: x86_64-unknown-linux-musl
+            runner: env
+            sdk_sha256: 9e5b6813a3f810123391f5f3ea10dfd1c14be1a880f410c70ec4424bbd1573d2
+          - target: ipq40xx/generic
+            arch: arm_cortex-a7_neon-vfpv4
+            rust: armv7-unknown-linux-musleabihf
+            runner: qemu-arm
+            sdk_sha256: 3c8140b6f6d6c8a6379872a1bdf0ea11ca3f37fc8fbb08ec7c1750efe6d58268
+          - target: ramips/mt7621
+            arch: mipsel_24kc
+            rust: mipsel-unknown-linux-musl
+            runner: qemu-mipsel
+            sdk_sha256: 97ac89bcd590cf882bad8e027d893ab073959628b69e9e43829a2ccfb1e11e29
+    env:
+      SDK_TARGET: ${{ matrix.target }}
+      SDK_SHA256: ${{ matrix.sdk_sha256 }}
+      PKG_ARCH: ${{ matrix.arch }}
+      RUST_TARGET: ${{ matrix.rust }}
+      EMULATOR: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+      - name: Check release version
+        run: |
+          version=$(sed -n 's/^PKG_VERSION:=//p' openwrt/xboxdownload/Makefile)
+          test "$TAG" = "v$version"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Install SDK prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang gawk gettext git libncurses-dev \
+            libssl-dev python3-distutils python3-setuptools qemu-user rsync swig unzip wget xsltproc zlib1g-dev
+      - name: Extract the verified OpenWrt SDK
+        working-directory: ${{ runner.temp }}
+        run: |
+          base="https://downloads.openwrt.org/releases/$OPENWRT_VERSION/targets/$SDK_TARGET"
+          suffix=musl
+          if [[ "$SDK_TARGET" == ipq40xx/generic ]]; then suffix=musl_eabi; fi
+          archive="openwrt-sdk-$OPENWRT_VERSION-${SDK_TARGET/\//-}_gcc-12.3.0_${suffix}.Linux-x86_64.tar.xz"
+          curl --fail --location --retry 3 "$base/$archive" -o sdk.tar.xz
+          echo "$SDK_SHA256  sdk.tar.xz" | sha256sum --check -
+          mkdir sdk
+          tar -xJf sdk.tar.xz -C sdk --strip-components=1
+          echo "SDK=$PWD/sdk" >> "$GITHUB_ENV"
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.arch != 'mipsel_24kc'
+        with:
+          targets: ${{ matrix.rust }}
+      # Rust does not distribute a precompiled std for this Tier 3 target.
+      - uses: dtolnay/rust-toolchain@nightly
+        if: matrix.arch == 'mipsel_24kc'
+        with:
+          components: rust-src
+      - name: Build and smoke-test a static target executable
+        run: |
+          toolchain=("$SDK"/staging_dir/toolchain-*)
+          staging=("$SDK"/staging_dir/target-*)
+          cc=("${toolchain[0]}"/bin/*-openwrt-linux-*-gcc)
+          ar="${cc[0]%-gcc}-ar"
+          test -x "${cc[0]}" && test -x "$ar"
+          export PATH="${toolchain[0]}/bin:$PATH" STAGING_DIR="${staging[0]}"
+          target_env=${RUST_TARGET//-/_}
+          export "CARGO_TARGET_${target_env^^}_LINKER=${cc[0]}" "CC_$target_env=${cc[0]}" "AR_$target_env=$ar"
+          export RUSTFLAGS='-C target-feature=+crt-static -C link-self-contained=no'
+          args=()
+          if [[ "$PKG_ARCH" == mipsel_24kc ]]; then args=('-Zbuild-std=std,panic_abort'); fi
+          cargo build --locked --release --target "$RUST_TARGET" "${args[@]}"
+          binary="$PWD/target/$RUST_TARGET/release/xboxdownloadd"
+          if readelf -lW "$binary" | grep 'INTERP' || readelf -dW "$binary" | grep 'NEEDED'; then
+            echo 'Executable has a runtime loader or shared library dependency' >&2
+            exit 1
+          fi
+          echo '{"http":{"mode":"alias_ip","bind":"192.168.1.253","redirect_ip":"192.168.1.253"}}' > "$RUNNER_TEMP/test.json"
+          "$EMULATOR" "$binary" print-dnsmasq --config "$RUNNER_TEMP/test.json" > "$RUNNER_TEMP/test.conf"
+          grep -Fx 'server=/assets1.xboxlive.com/127.0.0.1#5353' "$RUNNER_TEMP/test.conf"
+          echo "XBOXDOWNLOAD_PREBUILT_BIN=$binary" >> "$GITHUB_ENV"
+      - name: Package with the target SDK
+        run: |
+          cd "$SDK"
+          # These are the feeds and release revisions shipped with the SDK.
+          ./scripts/feeds update base packages luci
+          ./scripts/feeds install ca-bundle nftables-json luci-base
+          ln -s "$GITHUB_WORKSPACE/openwrt/xboxdownload" package/xboxdownload
+          echo 'CONFIG_PACKAGE_xboxdownload=m' > .config
+          targets=(package/xboxdownload/compile)
+          if [[ "$PKG_ARCH" == aarch64_generic ]]; then
+            cp -R "$GITHUB_WORKSPACE/openwrt/luci-app-xboxdownload" package/
+            sed -i "/^LUCI_TITLE/i PKG_VERSION:=$VERSION\nPKG_PO_VERSION:=$VERSION" package/luci-app-xboxdownload/Makefile
+            {
+              echo 'CONFIG_PACKAGE_luci-app-xboxdownload=m'
+              echo 'CONFIG_PACKAGE_luci-i18n-xboxdownload-zh-cn=m'
+              echo 'CONFIG_LUCI_LANG_zh_Hans=y'
+            } >> .config
+            targets+=(package/luci-app-xboxdownload/compile)
+          fi
+          make defconfig
+          make -j"$(nproc)" V=s XBOXDOWNLOAD_PREBUILT_BIN="$XBOXDOWNLOAD_PREBUILT_BIN" "${targets[@]}"
+          mkdir -p "$GITHUB_WORKSPACE/artifacts"
+          dest="$GITHUB_WORKSPACE/artifacts"
+          install -m 0755 "$XBOXDOWNLOAD_PREBUILT_BIN" "$dest/xboxdownloadd-$RUST_TARGET"
+          collect() {
+            local files=()
+            mapfile -t files < <(find bin/packages -type f -name "$1")
+            [[ ${#files[@]} == 1 ]] || { echo "Expected one $1, found ${#files[@]}" >&2; return 1; }
+            cp "${files[0]}" "$dest/"
+          }
+          collect "xboxdownload_${VERSION}*_${PKG_ARCH}.ipk"
+          if [[ "$PKG_ARCH" == aarch64_generic ]]; then
+            collect "luci-app-xboxdownload_${VERSION}*_all.ipk"
+            collect "luci-i18n-xboxdownload-zh-cn_${VERSION}*_all.ipk"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-${{ matrix.arch }}
+          path: artifacts/
+          if-no-files-found: error
+
+  publish:
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: openwrt-*
+          merge-multiple: true
+          path: dist
+      - name: Publish packages, executables and SHA256SUMS
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha256sum -- *.ipk xboxdownloadd-* > SHA256SUMS
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" ./* --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" ./* --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
+          fi

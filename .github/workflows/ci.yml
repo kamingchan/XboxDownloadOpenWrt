@@ -1,0 +1,46 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+
+  cross:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+      - run: cargo install --locked cargo-zigbuild --version 0.20.1
+      - run: cargo zigbuild --release --locked --target aarch64-unknown-linux-musl
+
+  openwrt:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check OpenWrt shell scripts
+        run: |
+          scripts=(openwrt/xboxdownload/files/xboxdownload.init
+                   openwrt/xboxdownload/files/xboxdownload-apply-ip
+                   openwrt/luci-app-xboxdownload/root/usr/libexec/rpcd/luci.xboxdownload)
+          for script in "${scripts[@]}"; do sh -n "$script"; done
+          # rc.common, functions.sh and jshn provide the external functions and variables.
+          shellcheck -s sh -e SC1091,SC3043,SC2154 "${scripts[@]}"
+      - name: Check LuCI JavaScript and JSON
+        run: |
+          find openwrt -type f -name '*.js' -exec sh -ec 'for f do node --check "$f"; done' sh {} +
+          find openwrt -type f -name '*.json' -exec sh -ec 'for f do python3 -m json.tool "$f" >/dev/null; done' sh {} +

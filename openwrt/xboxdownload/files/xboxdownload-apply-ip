@@ -1,0 +1,17 @@
+#!/bin/sh
+# validate_data (ubox) uses inet_pton for both address families.
+[ "$#" -eq 3 ] || exit 2
+case "$1" in xbox_cn1|xbox_cn2|xbox_app|akamai) ;; *) exit 2 ;; esac
+[ -z "$2" ] || validate_data ip4addr "$2" 2>/dev/null || exit 2
+[ -z "$3" ] || validate_data ip6addr "$3" 2>/dev/null || exit 2
+
+# Serialize winners and discard private UCI deltas if a write fails midway.
+exec 9>/var/lock/xboxdownload-apply.lock || exit 1
+flock 9 || exit 1
+transaction=$(mktemp -d /tmp/xboxdownload-uci.XXXXXX) || exit 1
+trap 'rm -rf "$transaction"' EXIT
+trap 'exit 1' HUP INT TERM
+uci -t "$transaction" set "xboxdownload.$1.selected_ipv4=$2" &&
+	uci -t "$transaction" set "xboxdownload.$1.selected_ipv6=$3" &&
+	uci -t "$transaction" commit xboxdownload || exit 1
+killall -HUP dnsmasq 2>/dev/null || true

@@ -1,0 +1,325 @@
+#!/bin/sh /etc/rc.common
+# shellcheck shell=sh disable=SC1091,SC2034,SC3043
+USE_PROCD=1
+START=95
+STOP=15
+
+DAEMON=/usr/bin/xboxdownloadd
+CONFIG=/var/etc/xboxdownload.json
+NETSTATE=/var/run/xboxdownload.netstate
+DNSCONF=/tmp/dnsmasq.d/xboxdownload.conf
+GROUPS_LIST='xbox_cn1 xbox_cn2 xbox_app akamai'
+REDIRECT_HOSTS='assets1.xboxlive.com assets2.xboxlive.com xvcf1.xboxlive.com xvcf2.xboxlive.com d1.xboxlive.com d2.xboxlive.com 5.xb.delivery.microsoft.com assets1.xboxlive.com.edgesuite.net cl-glcb907925.gcdn.co fg.microsoft.map.fastly.net dlassets.xboxlive.com dlassets2.xboxlive.com'
+
+error() {
+	logger -t xboxdownload -p daemon.err "$*"
+	return 1
+}
+
+valid_ip() { validate_data "$1" "$2" 2>/dev/null; }
+valid_device() { case "$1" in ''|*[!A-Za-z0-9_.-]*) return 1 ;; esac; }
+valid_port() {
+	case "$1" in ''|0*|*[!0-9]*|??????*) return 1 ;; esac
+	[ "$1" -le 65535 ]
+}
+
+collect_mac() {
+	local octet='[[:xdigit:]][[:xdigit:]]'
+	[ -n "$1" ] || return 0
+	# Each expansion is intentionally a case pattern for one hexadecimal octet.
+	# shellcheck disable=SC2254
+	case "$1" in
+		$octet:$octet:$octet:$octet:$octet:$octet) macs="${macs:+$macs, }$1" ;;
+		*) invalid_mac=1 ;;
+	esac
+}
+
+load_network_options() {
+	local upstream_ip upstream_port invalid_mac=0
+	config_get dns_mode main dns_mode dnsmasq
+	config_get dns_bind main dns_bind 127.0.0.1
+	config_get dns_port main dns_port 5353
+	config_get upstream main upstream_dns 223.5.5.5:53
+	config_get http_mode main http_mode alias_ip
+	config_get lan_device main lan_device br-lan
+	config_get alias_ip main alias_ip
+	config_get http_bind main http_bind 0.0.0.0
+	config_get http_port main http_port 18080
+	config_get redirect_ip main redirect_ip
+	config_get socket_path main socket_path /var/run/xboxdownload.sock
+
+	case "$dns_mode" in dnsmasq|manual) ;; *) error 'Invalid dns_mode'; return 1 ;; esac
+	valid_device "$lan_device" || { error 'Invalid lan_device'; return 1; }
+	if ! valid_port "$dns_port" || ! valid_port "$http_port"; then error 'Invalid listener port'; return 1; fi
+	if ! valid_ip ip4addr "$dns_bind" || ! valid_ip ip4addr "$http_bind"; then error 'Invalid listener address'; return 1; fi
+	[ -z "$redirect_ip" ] || valid_ip ip4addr "$redirect_ip" || { error 'Invalid redirect_ip'; return 1; }
+	[ -z "$alias_ip" ] || valid_ip ip4addr "$alias_ip" || { error 'Invalid alias_ip'; return 1; }
+	case "$http_mode" in
+		alias_ip)
+			case "$alias_ip" in ''|0.*|127.*|22[4-9].*|23[0-9].*|24[0-9].*|25[0-5].*)
+				error 'alias_ip mode requires a unicast LAN IPv4 address'; return 1 ;;
+			esac
+			http_bind=$alias_ip
+			redirect_ip=$alias_ip ;;
+		custom_port)
+			if [ -z "$redirect_ip" ]; then
+				redirect_ip=$(ip -4 addr show dev "$lan_device" | awk '$1 == "inet" {split($2,a,"/"); print a[1]; exit}')
+				valid_ip ip4addr "$redirect_ip" || { error 'Cannot determine LAN redirect_ip'; return 1; }
+			fi ;;
+		*) error 'Invalid http_mode'; return 1 ;;
+	esac
+
+	upstream_port=${upstream##*:}
+	case "$upstream" in
+		\[*\]:*) upstream_ip=${upstream#\[}; upstream_ip=${upstream_ip%\]:*}; valid_ip ip6addr "$upstream_ip" ;;
+		*:*) upstream_ip=${upstream%:*}; valid_ip ip4addr "$upstream_ip" ;;
+		*) false ;;
+	esac || { error 'Invalid upstream_dns address'; return 1; }
+	valid_port "$upstream_port" || { error 'Invalid upstream_dns port'; return 1; }
+	if [ "$upstream" = "$dns_bind:$dns_port" ] ||
+		{ [ "$dns_mode" = dnsmasq ] && [ "$upstream_port" = 53 ] &&
+			case "$upstream_ip" in 127.*|0.0.0.0|::1) true ;; *) false ;; esac; }; then
+		error 'upstream_dns loops to a local DNS listener'; return 1
+	fi
+	macs=''
+	config_list_foreach main block_ipv6_mac collect_mac
+	[ "$invalid_mac" = 0 ] || { error 'Invalid block_ipv6_mac'; return 1; }
+}
+
+# Only literal schema keys reach config_get. jshn handles all string escaping.
+add_setting() {
+	local section="$1" key="$2" kind="$3" value
+	config_get value "$section" "$key" "$4"
+	case "$kind" in
+		bool) config_get_bool value "$section" "$key" "$4"; json_add_boolean "$key" "$value" ;;
+		int|positive|hour|double)
+			case "$kind" in
+				hour) [ "$value" = -1 ] || { valid_decimal "$value" && [ "$value" -le 23 ]; } ;;
+				double) case "$value" in ''|*[!0-9.]*) false ;; *) validate_data ufloat "$value" 2>/dev/null ;; esac ;;
+				positive) valid_decimal "$value" && [ "$value" -gt 0 ] ;;
+				int) valid_decimal "$value" ;;
+			esac || { error "Invalid $section.$key"; return 1; }
+			if [ "$kind" = double ]; then json_add_double "$key" "$value"; else json_add_int "$key" "$value"; fi ;;
+		ip4addr|ip6addr)
+			[ -z "$value" ] || valid_ip "$kind" "$value" || { error "Invalid $section.$key"; return 1; }
+			json_add_string "$key" "$value" ;;
+		string) json_add_string "$key" "$value" ;;
+	esac
+}
+
+valid_decimal() {
+	case "$1" in ''|*[!0-9]*|0?*) return 1 ;; esac
+	[ "$1" -le 2147483647 ] 2>/dev/null
+}
+
+group_default() { if [ "$1" = akamai ]; then echo 0; else echo 1; fi; }
+
+render_config() (
+	local group family key tmp ttl
+	. /usr/share/libubox/jshn.sh || exit 1
+	json_init
+	json_add_object dns
+	json_add_string mode "$dns_mode"
+	json_add_string bind "$dns_bind"
+	json_add_int port "$dns_port"
+	json_add_string upstream "$upstream"
+	config_get ttl main dns_ttl 60
+	valid_decimal "$ttl" || { error 'Invalid dns_ttl'; exit 1; }
+	json_add_int ttl "$ttl"
+	json_close_object
+	json_add_object http
+	json_add_string mode "$http_mode"
+	json_add_string bind "$http_bind"
+	json_add_int port "$http_port"
+	json_add_string redirect_ip "$redirect_ip"
+	json_close_object
+	json_add_object runtime
+	json_add_string socket_path "$socket_path"
+	add_setting main data_dir string /usr/share/xboxdownload/ip
+	add_setting main cache_dir string /var/lib/xboxdownload
+	add_setting main apply_hook string /usr/libexec/xboxdownload/apply-ip
+	add_setting main log_capacity int 200 || exit 1
+	json_close_object
+	json_add_object groups
+	for group in $GROUPS_LIST; do
+		json_add_object "$group"
+		add_setting "$group" enabled bool "$(group_default "$group")"
+		config_get family "$group" ip_family ipv4
+		case "$family" in ipv4|ipv6|dual) ;; *) error "Invalid $group.ip_family"; exit 1 ;; esac
+		json_add_string ip_family "$family"
+		add_setting "$group" selected_ipv4 ip4addr '' || exit 1
+		add_setting "$group" selected_ipv6 ip6addr '' || exit 1
+		for key in filter_keyword custom_test_url; do add_setting "$group" "$key" string ''; done
+		json_close_object
+	done
+	json_close_object
+	json_add_object speedtest
+	add_setting speedtest auto_enabled bool 1
+	add_setting speedtest interval_hours positive 12 || exit 1
+	add_setting speedtest prefer_hour hour 4 || exit 1
+	add_setting speedtest defer_active_minutes int 15 || exit 1
+	add_setting speedtest switch_threshold_pct int 20 || exit 1
+	add_setting speedtest min_speed_mbps double 5.0 || exit 1
+	add_setting speedtest prefilter_concurrency positive 24 || exit 1
+	add_setting speedtest prefilter_top_n positive 10 || exit 1
+	add_setting speedtest download_concurrency positive 4 || exit 1
+	add_setting speedtest download_range_mb positive 8 || exit 1
+	add_setting speedtest download_timeout_secs positive 6 || exit 1
+	add_setting speedtest tcp_timeout_ms positive 1500 || exit 1
+	add_setting speedtest ip_sync_enabled bool 1
+	add_setting speedtest ip_sync_mirror string github
+	add_setting speedtest ip_sync_custom_base string ''
+	json_close_object
+	mkdir -p /var/etc || exit 1
+	tmp=$(mktemp "$CONFIG.XXXXXX") || exit 1
+	trap 'rm -f "$tmp"' EXIT
+	json_dump > "$tmp" && mv -f "$tmp" "$CONFIG"
+)
+
+cleanup_network() {
+	local prev_lan_dev prev_alias_ip
+	nft delete table inet xboxdownload 2>/dev/null || true
+	if [ -f "$NETSTATE" ]; then
+		if read -r prev_lan_dev prev_alias_ip < "$NETSTATE" && valid_device "$prev_lan_dev" && valid_ip ip4addr "$prev_alias_ip"; then
+			ip addr del "${prev_alias_ip}/32" dev "$prev_lan_dev" 2>/dev/null || true
+		fi
+		rm -f "$NETSTATE" || return 1
+	fi
+	if [ -f "$DNSCONF" ]; then
+		rm -f "$DNSCONF" && /etc/init.d/dnsmasq reload || return 1
+	fi
+	return 0
+}
+
+nft_rules() {
+	printf 'table inet xboxdownload {\n'
+	if [ "$http_mode" = alias_ip ]; then
+		cat <<NFT
+ chain prerouting {
+  type nat hook prerouting priority dstnat - 10; policy accept;
+  iifname "$lan_device" ip daddr $alias_ip tcp dport 80 dnat ip to $alias_ip:$http_port
+ }
+ chain output {
+  type nat hook output priority -100; policy accept;
+  ip daddr $alias_ip tcp dport 80 dnat ip to $alias_ip:$http_port
+ }
+NFT
+	fi
+	if [ -n "$macs" ]; then
+		cat <<NFT
+ chain input_v6_block {
+  type filter hook input priority filter - 5; policy accept;
+  iifname "$lan_device" meta nfproto ipv6 ether saddr { $macs } udp dport 547 drop
+  iifname "$lan_device" ether saddr { $macs } ip6 nexthdr icmpv6 drop
+ }
+NFT
+	fi
+	printf '}\n'
+}
+
+fallback_dnsmasq() {
+	local host hosts group enabled target="$dns_bind"
+	[ "$target" != 0.0.0.0 ] || target=127.0.0.1
+	hosts="$REDIRECT_HOSTS assets-srvs.xboxlive.com assets-srvs-net.trafficmanager.net assets-srvs-apac.delivery.microsoft.com assets-srvs-na.delivery.microsoft.com"
+	for group in xbox_cn1 xbox_cn2 xbox_app; do
+		config_get_bool enabled "$group" enabled 1
+		[ "$enabled" = 1 ] || continue
+		case "$group" in
+			xbox_cn1) hosts="$hosts assets1.xboxlive.cn assets2.xboxlive.cn d1.xboxlive.cn d2.xboxlive.cn" ;;
+			xbox_cn2) hosts="$hosts dlassets.xboxlive.cn dlassets2.xboxlive.cn" ;;
+			xbox_app) hosts="$hosts dl.delivery.mp.microsoft.com tlu.dl.delivery.mp.microsoft.com 1d.tlu.dl.delivery.mp.microsoft.com" ;;
+		esac
+	done
+	for host in $hosts; do printf 'server=/%s/%s#%s\n' "$host" "$target" "$dns_port" || return 1; done
+}
+
+install_dnsmasq() (
+	local tmp host
+	mkdir -p /tmp/dnsmasq.d || exit 1
+	# A dotfile is ignored by dnsmasq while the new fragment is being written.
+	tmp=$(mktemp /tmp/dnsmasq.d/.xboxdownload.XXXXXX) || exit 1
+	trap 'rm -f "$tmp"' EXIT
+	"$DAEMON" print-dnsmasq --config "$CONFIG" > "$tmp" || fallback_dnsmasq > "$tmp" || exit 1
+	# Stock dnsmasq rejects private A answers from an upstream, even loopback.
+	# Only the 12 locally redirected names need an exception for a LAN target.
+	case "$redirect_ip" in
+		10.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|192.168.*|127.*|169.254.*)
+			for host in $REDIRECT_HOSTS; do printf 'rebind-domain-ok=/%s/\n' "$host" >> "$tmp" || exit 1; done ;;
+	esac
+	mv -f "$tmp" "$DNSCONF" && /etc/init.d/dnsmasq reload
+)
+
+install_network() {
+	local addresses
+	if [ "$http_mode" = alias_ip ]; then
+		# Never claim (and later delete) an address already owned by the router.
+		addresses=$(ip -4 addr show) || return 1
+		if printf '%s\n' "$addresses" | awk -v ip="$alias_ip" '$1=="inet" {split($2,a,"/"); if(a[1]==ip) found=1} END {exit !found}'; then
+			error 'alias_ip is already assigned on the router'; return 1
+		fi
+		# Journal first so stop can undo a mount even after abrupt termination.
+		printf '%s %s\n' "$lan_device" "$alias_ip" > "$NETSTATE" || return 1
+		ip addr replace "${alias_ip}/32" dev "$lan_device" || return 1
+	fi
+	if [ "$http_mode" = alias_ip ] || [ -n "$macs" ]; then nft_rules | nft -f - || return 1; fi
+	if [ "$dns_mode" = dnsmasq ]; then install_dnsmasq || return 1; fi
+	return 0
+}
+
+setup_network() {
+	cleanup_network || return 1
+	install_network && return 0
+	cleanup_network
+	error 'Network setup failed, rolled back service changes'
+}
+
+start_service() {
+	local enabled
+	start_status=1
+	wait_for_socket=0
+	config_load xboxdownload || return 1
+	config_get_bool enabled main enabled 0
+	if [ "$enabled" = 0 ]; then cleanup_network && start_status=0; return "$start_status"; fi
+	if ! load_network_options || ! render_config; then cleanup_network; return 1; fi
+	setup_network || return 1
+	procd_open_instance
+	procd_set_param command "$DAEMON" run --config "$CONFIG"
+	procd_set_param respawn
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param file /etc/config/xboxdownload
+	procd_close_instance
+	wait_for_socket=1
+	start_status=0
+}
+
+# rc.common invokes this after submitting the procd request. Failed binds or a
+# missing binary must release the alias, firewall and DNS delegation as well.
+service_started() {
+	local tries=5
+	[ "${start_status:-1}" = 0 ] || return 1
+	[ "$wait_for_socket" = 1 ] || return 0
+	while [ "$tries" -gt 0 ]; do
+		if [ -S "$socket_path" ] && "$DAEMON" ctl --socket "$socket_path" --method status >/dev/null 2>&1; then return 0; fi
+		sleep 1
+		tries=$((tries - 1))
+	done
+	stop
+	error 'Daemon control socket did not become ready, rolled back service changes'
+}
+stop_service() { cleanup_network; }
+service_triggers() { procd_add_reload_trigger xboxdownload; }
+
+reload_service() {
+	local enabled old_socket
+	config_load xboxdownload || return 1
+	config_get_bool enabled main enabled 0
+	if [ "$enabled" = 0 ]; then stop; return; fi
+	if ! service_running; then start; return; fi
+	old_socket=$(jsonfilter -i "$CONFIG" -e '@.runtime.socket_path') || old_socket=''
+	load_network_options && render_config || return 1
+	setup_network || return 1
+	# The daemon can atomically rebind its listeners. Address conflicts (e.g.
+	# a wildcard replacing a specific bind) can require closing the old socket.
+	"$DAEMON" ctl --socket "$old_socket" --method reload --params '{}' || { stop && start; }
+}
