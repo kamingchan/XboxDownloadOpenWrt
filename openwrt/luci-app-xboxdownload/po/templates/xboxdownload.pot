@@ -46,6 +46,9 @@ msgstr ""
 msgid "Apply"
 msgstr ""
 
+msgid "Auto (%s)"
+msgstr ""
+
 msgid "Automatic dnsmasq forwarding"
 msgstr ""
 
@@ -185,12 +188,6 @@ msgid "Deferred"
 msgstr ""
 
 msgid "Details"
-msgstr ""
-
-msgid "Detect upstream DNS"
-msgstr ""
-
-msgid "Detected upstream DNS servers: %s. Selected %s. Save and apply to use it."
 msgstr ""
 
 msgid "Disabled"
@@ -391,6 +388,9 @@ msgstr ""
 msgid "Last tested"
 msgstr ""
 
+msgid "Leave empty to use the dnsmasq upstream, then WAN DNS, then 223.5.5.5:53. To override, select or enter an address. A loop back to the router DNS listener prevents startup."
+msgstr ""
+
 msgid "Legacy content redirect"
 msgstr ""
 
@@ -452,12 +452,6 @@ msgid "No measurements yet."
 msgstr ""
 
 msgid "No redirects recorded."
-msgstr ""
-
-msgid "No router or WAN upstream DNS found. Choose a public DNS server from the list or enter a custom address."
-msgstr ""
-
-msgid "No upstream DNS candidates found. Enter a custom address."
 msgstr ""
 
 msgid "Node speed test"
@@ -620,9 +614,6 @@ msgid "Uptime"
 msgstr ""
 
 msgid "Use Akamai fallback"
-msgstr ""
-
-msgid "Use an independent upstream resolver. A loop back to the router DNS listener will prevent startup."
 msgstr ""
 
 msgid "Version"

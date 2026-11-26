@@ -2,7 +2,7 @@
 
 [简体中文](#案例-1arm64-单网口软路由) · [English summary](#english-summary) · [返回 README](../README.md) · [Back to README_EN](../README_EN.md)
 
-本文收录典型硬件与网络拓扑下的配置要点，帮助用户和 AI Agent 判断应该在哪台设备上安装、选择哪种模式。所有地址均为通用私网示例或文档保留地址（如 `192.168.1.1/24`、`10.0.0.1/24`、`127.0.0.1:6053`、`192.168.1.253`），不对应任何真实网络，请替换为你自己的值。
+本文收录典型硬件与网络拓扑下的配置要点，帮助用户和 AI Agent 判断应该在哪台设备上安装、选择哪种模式。示例网络使用通用私网或文档保留地址（如 `192.168.1.1/24`、`10.0.0.1/24`、`127.0.0.1:6053`、`192.168.1.253`），不对应任何真实网络，请替换为你自己的值。
 
 通用前提：Xbox / PC 使用的 DNS 必须最终经过安装了本插件的那台路由器上的 dnsmasq（自动模式），或你手动导入规则的 DNS 服务（手动模式）。
 
@@ -50,7 +50,7 @@ Xbox / PC ──► dnsmasq :53 ──普通域名──► SmartDNS 127.0.0.1:6
 **要点**：
 
 1. 保持默认的 **由 dnsmasq 自动分流** 模式，不需要修改 SmartDNS 配置。
-2. 在设置页点击 **检测上游 DNS**。插件会读取 dnsmasq 当前的 `server=` 上游，识别出 SmartDNS，并把 `127.0.0.1:6053` 排在列表首位；保存并应用后，受管域名中不需要改写的记录也经由 SmartDNS 解析。
+2. **回退 DNS 服务器**（`upstream_dns`）默认留空。在此拓扑下，启动时会从 dnsmasq 的全局 `server=` 读到 `127.0.0.1:6053`，受管域名中需要转发的查询也走 SmartDNS。如果没有可用的全局上游，则使用 WAN DNS，最后回退到 `223.5.5.5:53`。仅在需要固定其他上游时，才在 LuCI 选择或填写地址。
 3. 检测结果会自动排除路由器自身 53 端口和守护进程的 5353 端口，避免 DNS 环路。手动填写时同样不要使用 `127.0.0.1:53` 或 `192.168.1.1:53`。
 4. 如果 SmartDNS 直接占用了 53 端口、dnsmasq 不再是 LAN 的 DNS 入口，自动模式不会生效。此时把 DNS 集成切换为 **手动配置分流**，复制 LuCI 生成的 SmartDNS 规则导入 SmartDNS；首次选定节点或更改参与分流的分组后需重新复制。AdGuardHome 作为 LAN DNS 入口时同理，使用生成的 AdGuardHome 规则。
 
@@ -103,7 +103,7 @@ Xbox ──网关/DNS──► 旁路由 192.168.1.2 (dnsmasq + 代理) ──�
 
 ## English summary
 
-All addresses below are generic private or documentation examples; replace them with your own. In every topology, the DNS server used by the console must be the router's dnsmasq running this plugin (automatic mode) or a DNS service into which you imported the generated rules (manual mode).
+Example networks use generic private or documentation addresses. Substitute addresses from your own network. In every topology, the DNS server used by the console must be the router's dnsmasq running this plugin (automatic mode) or a DNS service into which you imported the generated rules (manual mode).
 
 ### Case 1: ARM64 single-LAN-port soft router
 
@@ -111,7 +111,7 @@ Devices such as the NanoPi R5C and other Rockchip ARM64 boards on OpenWrt or Fri
 
 ### Case 2: OpenWrt with SmartDNS
 
-When dnsmasq still listens on port 53 and forwards to SmartDNS on a local non-53 port (for example `127.0.0.1:6053`), keep automatic dnsmasq forwarding and click **Detect upstream DNS**; SmartDNS is detected and listed first. Loopback/router addresses on port 53 or on the daemon port are filtered out to prevent loops. If SmartDNS or AdGuardHome itself serves port 53 to LAN clients, switch to manual forwarding and import the generated rules, re-copying them after groups first get nodes or the forwarded groups change.
+When dnsmasq still listens on port 53 and forwards to SmartDNS on a local non-53 port (for example `127.0.0.1:6053`), keep automatic dnsmasq forwarding and leave **Fallback DNS server** (`upstream_dns`) empty. At startup the service uses the global dnsmasq `server=` entry for SmartDNS. If no global upstream is usable, it tries WAN DNS and falls back to `223.5.5.5:53`. Choose or enter an address in LuCI only to pin an override. Loopback/router addresses on port 53 or on the daemon port are filtered out to prevent loops. If SmartDNS or AdGuardHome itself serves port 53 to LAN clients, switch to manual forwarding and import the generated rules, re-copying them after groups first get nodes or the forwarded groups change.
 
 ### Case 3: Main router plus side router (transparent proxy / Clash)
 

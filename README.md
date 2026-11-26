@@ -57,7 +57,7 @@ Xbox 下载的默认 CDN 调度经常把国内用户分配到拥堵或境外节�
 | 节点选择 | 桌面端手动测速 | 手动查找 IP、手动更新 | 路由器后台自动测速，滞回防抖切换，失败保底 |
 | 80 端口与 Web 管理 | 占用电脑的 80 端口 | 需要自行处理 HTTP 跳转 | 使用 LAN `/32` 辅助 IP + 独立 nftables DNAT，不占用 uhttpd 的 80 端口 |
 | 对现有网络的影响 | 取决于 PC 的 DNS 服务 | 规则写宽了会误伤 Windows Update 等流量 | 只接管精确主机名；未选 IP 的分组不接管，Windows Update 继续走原解析链 |
-| 与 SmartDNS / AdGuardHome / OpenClash | 不涉及 | 需要手工协调 | 不修改它们的配置；LuCI 可自动检测并选用本机 SmartDNS 作为回退上游 |
+| 与 SmartDNS / AdGuardHome / OpenClash | 不涉及 | 需要手工协调 | 不修改它们的配置；dnsmasq 使用本机 SmartDNS 时，插件默认跟随该上游 |
 | IPv6 | 视设置而定 | 需手工屏蔽 AAAA | 按分组选择 IPv4 / IPv6 / 双栈，自动抑制可能绕过选点的记录 |
 | 资源占用 | 桌面程序常驻运行 | 无额外进程 | 约 2.2 MB 静态 Rust 二进制，空闲时 CPU 占用接近零 |
 | 验证手段 | 人工观察 | 人工 `nslookup` | 一键 7 项真实链路自检 + 命中日志 |
@@ -90,7 +90,7 @@ Xbox 下载的默认 CDN 调度经常把国内用户分配到拥堵或境外节�
 <summary><b>自动化与交互体验</b></summary>
 
 - **响应式 LuCI 面板**：总览、节点测速、设置三页，桌面和手机浏览器均可操作，提供简体中文翻译。
-- **上游 DNS 自动检测**：一键识别本机 SmartDNS（非 53 端口）、dnsmasq 已配置的上游、WAN 口下发的 DNS，并提供阿里 DNS、DNSPod、Cloudflare、Google 公共 DNS 备选；会自动排除指向路由器自身 53 端口或守护进程监听端口的地址，防止 DNS 环路。
+- **自动跟随上游 DNS**：`upstream_dns` 默认留空。服务启动时优先使用 dnsmasq 的全局 `server=`（如本机非 53 端口的 SmartDNS），其次使用 WAN 下发的 DNS，两者都没有可用地址时使用 `223.5.5.5:53`。LuCI 可显示检测结果，并支持手动覆盖。
 - **空闲 LAN 地址推荐**：根据 LAN 网段、`ip neigh` 和 ping 探测推荐一个未被占用的高位地址作为辅助 IP。
 - **两阶段测速**：先并发 TCP 延迟预筛，再对入选节点做 HTTP Range 实际下载测速；当前节点与新候选同批测量，避免不同时段结果不可比。支持 IPv4 / IPv6 / 双栈，可按运营商、地区、备注筛选。
 - **智能定时切换**：默认每 12 小时测一次（优先凌晨 4 点）；最近 15 分钟有下载活动时自动延后；新节点至少快 20% 才切换；当前节点失效或低于 5 MB/s 时提前替换；整组测试失败时保留原节点。
@@ -213,7 +213,7 @@ ssh "$router" 'chmod 755 /usr/libexec/rpcd/luci.xboxdownload && rm -f /tmp/luci-
 
 1. 重新登录 LuCI，打开 **服务 → Xbox 下载 → 设置**。
 2. 保留默认的 **由 dnsmasq 自动分流** 和 **LAN 辅助 IP** 模式，核对 LAN 接口名称（通常是 `br-lan`），点击 **推荐 LAN 地址**。确认该地址不在 DHCP 地址池内、也没有分配给休眠中的设备。
-3. 点击 **检测上游 DNS**：会优先选用路由器本机的上游（例如非 53 端口的 SmartDNS），也可以从列表中选择 WAN 或公共 DNS，或手动输入 `IP:端口` / `[IPv6]:端口`。
+3. **回退 DNS 服务器** 默认留空，自动跟随 dnsmasq 上游。需要固定上游时，从列表选择或填写 `IPv4:端口` / `[IPv6]:端口`。清除已保存的地址并应用即可恢复自动模式。
 4. 勾选 **启用服务**，保存并应用。
 5. 打开 **节点测速**，对 CN1、CN2、Xbox App 分组分别测速并 **一键应用** 最快节点（或等待定时自动测速）。
 6. 回到 **总览**，点击 **一键端到端自检**，默认模式下 7 项应全部通过。
@@ -278,11 +278,9 @@ LuCI 包和中文包始终使用 `_all.ipk`。安装步骤见[安装](#安装)�
 LAN_DEV=$(ubus call network.interface.lan status | jsonfilter -e '@.l3_device')
 # 有 LuCI 插件时可让路由器推荐空闲地址；否则手动指定 DHCP 池外的空闲地址
 ubus call luci.xboxdownload suggest_alias_ip "{\"lan_device\":\"$LAN_DEV\"}"
-ubus call luci.xboxdownload suggest_upstream_dns     # 取 candidates[0].address 作为上游
 
 uci set xboxdownload.main.lan_device="$LAN_DEV"
 uci set xboxdownload.main.alias_ip='192.168.1.253'      # 换成上一步确认的空闲地址
-uci set xboxdownload.main.upstream_dns='223.5.5.5:53'   # 换成检测结果，或保留默认
 uci set xboxdownload.main.enabled='1'
 uci commit xboxdownload
 /etc/init.d/xboxdownload enable
@@ -359,7 +357,7 @@ ls /tmp/dnsmasq*.d/xboxdownload.conf 2>/dev/null || echo 'dnsmasq clean'
 | GitHub Raw / jsDelivr 上的 `skydevil88/XboxDownload` IP 库 | 定时同步候选节点列表 | 设置页关闭 IP 库同步，或改用自定义镜像地址 |
 | `xbox.skydevil.xyz` 包地址解析接口 | Xbox App 分组测速时获取真实下载包地址 | 为该分组填写自定义测速 URL；接口不可达时自动退回 TCP RTT 排序 |
 | 候选 CDN 节点 | TCP 延迟和 HTTP Range 下载测速 | 关闭定时自动测速 |
-| 回退上游 DNS（`upstream_dns`） | 解析受管域名中不需要改写的记录 | 设置为你信任的 DNS |
+| 回退上游 DNS（`upstream_dns`） | 解析受管域名中不需要改写的记录 | 默认跟随 dnsmasq 上游，其次是 WAN DNS，最后是 `223.5.5.5:53`。可填入信任的 DNS 固定上游 |
 
 ## 常见问题
 

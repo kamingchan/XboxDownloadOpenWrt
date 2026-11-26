@@ -57,7 +57,7 @@ Actual gains depend on your ISP, regional routing and time of day.
 | Node selection | Manual speed test in the desktop app | Find IPs by hand and update them manually | Automatic background tests with hysteresis and failure fallback |
 | Port 80 and web UI | Occupies port 80 on the computer | You must handle the HTTP redirect yourself | LAN `/32` alias IP + dedicated nftables DNAT; uhttpd keeps port 80 |
 | Impact on the network | Depends on the computer's DNS service | Broad rules can break Windows Update and other traffic | Exact hostnames only; groups without a selected IP are not taken over, so Windows Update keeps using the existing resolver chain |
-| SmartDNS / AdGuardHome / OpenClash | Not applicable | Manual coordination | Their configuration is never modified; LuCI can detect a local SmartDNS and use it as the fallback upstream |
+| SmartDNS / AdGuardHome / OpenClash | Not applicable | Manual coordination | Their configuration is never modified; the plugin follows local SmartDNS when dnsmasq uses it as its upstream |
 | IPv6 | Depends on settings | AAAA must be blocked by hand | IPv4 / IPv6 / dual stack per group; records that could bypass the chosen node are suppressed |
 | Footprint | Resident desktop application | No extra process | About 2.2 MB static Rust binary, near-zero idle CPU |
 | Verification | Manual observation | Manual `nslookup` | One-click 7-step live-path self-check plus redirect log |
@@ -90,7 +90,7 @@ The original XboxDownload offers a broader toolset (for example more platforms a
 <summary><b>Automation and user experience</b></summary>
 
 - **Responsive LuCI panel**: Overview, Node speed test and Settings pages that work in desktop and phone browsers, with a Simplified Chinese translation.
-- **Upstream DNS detection**: one click finds a local SmartDNS on a non-53 port, the upstreams dnsmasq already uses and the DNS servers provided on WAN, and offers AliDNS, DNSPod, Cloudflare and Google public DNS as alternatives. Addresses that point to the router's own port 53 or to the daemon's port are excluded to prevent DNS loops.
+- **Automatic upstream DNS**: `upstream_dns` is empty by default. At startup, the service uses a global dnsmasq `server=` entry (such as local SmartDNS on a non-53 port), then a WAN DNS server, and finally `223.5.5.5:53` if neither provides a usable address. LuCI shows the detected upstream and accepts a manual override.
 - **Free LAN address suggestion**: proposes an unused high address in the LAN subnet for the alias IP, checked against `ip addr`, `ip neigh` and ping.
 - **Two-stage speed test**: concurrent TCP latency pre-filtering, then real HTTP Range downloads from the shortlisted nodes. The current node is measured in the same batch as the candidates so results are comparable. IPv4, IPv6 and dual stack are supported, with filters by ISP, region or note.
 - **Smart scheduled switching**: every 12 hours by default, preferably at 04:00 local time; deferred if downloads happened in the last 15 minutes; a new node must be at least 20% faster; a failed node or one below 5 MB/s is replaced early; a fully failed run keeps the current node.
@@ -213,7 +213,7 @@ To build IPKs or cross-compile the binary yourself, see the [development guide](
 
 1. Log in to LuCI again and open **Services → Xbox Download → Settings**.
 2. Keep the default **Automatic dnsmasq forwarding** and **LAN alias IP** modes, check the LAN interface name (usually `br-lan`) and click **Suggest LAN address**. Make sure the address is outside the DHCP pool and not assigned to a sleeping device.
-3. Click **Detect upstream DNS**. It prefers a router-local upstream (for example SmartDNS on a non-53 port). You can also pick a WAN or public DNS from the list, or enter `IP:port` / `[IPv6]:port`.
+3. Leave **Fallback DNS server** empty to follow the dnsmasq upstream automatically. To pin a resolver, choose one from the list or enter `IPv4:port` or `[IPv6]:port`. Clear a saved address and apply to restore automatic selection.
 4. Tick **Enable service**, then save and apply.
 5. Open **Node speed test**, test the CN1, CN2 and Xbox App groups and click **Apply** on the fastest node (or wait for the scheduled test).
 6. Back on **Overview**, click **Run end-to-end check**. In the default mode all 7 checks should pass.
@@ -278,11 +278,9 @@ The LuCI app and the Chinese pack are always the `_all.ipk` files. Installation 
 LAN_DEV=$(ubus call network.interface.lan status | jsonfilter -e '@.l3_device')
 # With the LuCI app installed the router can suggest a free address; otherwise pick a free one outside the DHCP pool
 ubus call luci.xboxdownload suggest_alias_ip "{\"lan_device\":\"$LAN_DEV\"}"
-ubus call luci.xboxdownload suggest_upstream_dns     # use candidates[0].address as the upstream
 
 uci set xboxdownload.main.lan_device="$LAN_DEV"
 uci set xboxdownload.main.alias_ip='192.168.1.253'      # replace with the confirmed free address
-uci set xboxdownload.main.upstream_dns='223.5.5.5:53'   # replace with the detected value or keep the default
 uci set xboxdownload.main.enabled='1'
 uci commit xboxdownload
 /etc/init.d/xboxdownload enable
@@ -359,7 +357,7 @@ This project has **zero telemetry**: speed-test results, node IPs, client inform
 | `skydevil88/XboxDownload` IP lists on GitHub Raw / jsDelivr | Scheduled sync of candidate node lists | Disable IP list sync on the Settings page, or use a custom mirror URL |
 | `xbox.skydevil.xyz` package URL resolver | Fetches a real package URL for Xbox App speed tests | Set a custom test URL for that group; falls back to TCP RTT ranking when unreachable |
 | Candidate CDN nodes | TCP latency and HTTP Range download tests | Disable scheduled speed tests |
-| Fallback upstream DNS (`upstream_dns`) | Resolves records of managed hosts that are not rewritten | Set it to a DNS server you trust |
+| Fallback upstream DNS (`upstream_dns`) | Resolves records of managed hosts that are not rewritten | Defaults to the dnsmasq upstream, then WAN DNS, then `223.5.5.5:53`. Enter a trusted resolver to pin it |
 
 ## FAQ
 

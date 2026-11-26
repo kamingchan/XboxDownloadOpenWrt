@@ -97,6 +97,16 @@ function portNumber(value) {
 	return value && match(value, /^0*[1-9][0-9]{0,4}$/) ? int(value, 10) : 0;
 }
 
+function resolvedAddress() {
+	let value = readCommand('/etc/init.d/xboxdownload resolve_upstream');
+	let endpoint = match(value || '', /^([0-9.]+):([0-9]+)$/) ||
+		match(value || '', /^\[([0-9A-Fa-f.]*:[0-9A-Fa-f:.]*)\]:([0-9]+)$/);
+	if (!endpoint) return null;
+	let ip = canonical(endpoint[1]), port = portNumber(endpoint[2]);
+	if (!ip || ip == '0.0.0.0' || ip == '::' || !port || port > 65535) return null;
+	return (index(ip, ':') >= 0 ? '[' + ip + ']' : ip) + ':' + port;
+}
+
 let interfaces = readCommand('ip -o addr show');
 let router = {};
 for (let line in split(interfaces || '', '\n')) {
@@ -110,7 +120,7 @@ if (bind) router[bind] = true;
 let listen = portNumber(readCommand('uci -q get xboxdownload.main.dns_port')) || 5353;
 let smart = readCommand("uci -q get 'smartdns.@smartdns[0].enabled'") == '1'
 	? portNumber(readCommand("uci -q get 'smartdns.@smartdns[0].port'")) : 0;
-let nearby = [], others = [], seen = {}, smartReferenced = false;
+let candidates = [], seen = {}, smartReferenced = false;
 
 function add(ip, port, source, service) {
 	let addr = canonical(ip);
@@ -127,7 +137,7 @@ function add(ip, port, source, service) {
 	}
 	let entry = { address: endpoint, source };
 	if (service) entry.service = service;
-	push(localAddr ? nearby : others, entry);
+	push(candidates, entry);
 }
 
 function dnsmasqServer(value) {
@@ -156,8 +166,6 @@ if (length(files)) {
 	let servers = readCommand("uci -q get 'dhcp.@dnsmasq[0].server'");
 	for (let server in split(servers || '', /[[:space:]]+/)) dnsmasqServer(server);
 }
-if (smart && smart != 53 && !smartReferenced) add('127.0.0.1', smart, 'local_service', 'SmartDNS');
-
 let resolv = fs.open('/tmp/resolv.conf.d/resolv.conf.auto') || fs.open('/tmp/resolv.conf.auto');
 if (resolv) {
 	let line;
@@ -167,11 +175,13 @@ if (resolv) {
 	}
 	resolv.close();
 }
+if (smart && smart != 53 && !smartReferenced) add('127.0.0.1', smart, 'local_service', 'SmartDNS');
+let autoAddress = resolvedAddress() || (length(candidates) ? candidates[0].address : '223.5.5.5:53');
 add('223.5.5.5', 53, 'public', 'AliDNS');
 add('119.29.29.29', 53, 'public', 'DNSPod');
 add('1.1.1.1', 53, 'public', 'Cloudflare');
 add('8.8.8.8', 53, 'public', 'Google');
-print({ candidates: [ ...nearby, ...others ] }, '\n');
+print({ auto_address: autoAddress, candidates }, '\n');
 UCODE
 }
 

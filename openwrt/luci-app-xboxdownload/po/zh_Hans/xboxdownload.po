@@ -46,6 +46,9 @@ msgstr "已将 %s 应用到 %s。"
 msgid "Apply"
 msgstr "一键应用"
 
+msgid "Auto (%s)"
+msgstr "自动（%s）"
+
 msgid "Automatic dnsmasq forwarding"
 msgstr "由 dnsmasq 自动分流"
 
@@ -186,12 +189,6 @@ msgstr "已延后"
 
 msgid "Details"
 msgstr "详情"
-
-msgid "Detect upstream DNS"
-msgstr "检测上游 DNS"
-
-msgid "Detected upstream DNS servers: %s. Selected %s. Save and apply to use it."
-msgstr "检测到上游 DNS：%s。已选中 %s，保存并应用后生效。"
 
 msgid "Disabled"
 msgstr "已关闭"
@@ -391,6 +388,9 @@ msgstr "上次测速速度"
 msgid "Last tested"
 msgstr "上次测速时间"
 
+msgid "Leave empty to use the dnsmasq upstream, then WAN DNS, then 223.5.5.5:53. To override, select or enter an address. A loop back to the router DNS listener prevents startup."
+msgstr "留空时优先使用 dnsmasq 上游，其次是 WAN DNS，最后回退到 223.5.5.5:53。需要固定上游时，可从列表选择或输入地址。指向路由器 DNS 监听地址形成环路会导致启动失败。"
+
 msgid "Legacy content redirect"
 msgstr "旧版内容域名重定向"
 
@@ -453,12 +453,6 @@ msgstr "暂无测速结果。"
 
 msgid "No redirects recorded."
 msgstr "暂无重定向记录。"
-
-msgid "No router or WAN upstream DNS found. Choose a public DNS server from the list or enter a custom address."
-msgstr "未发现路由器或 WAN 上游 DNS。可从列表选择公共 DNS，也可手动输入地址。"
-
-msgid "No upstream DNS candidates found. Enter a custom address."
-msgstr "未发现上游 DNS 候选项，请手动输入地址。"
 
 msgid "Node speed test"
 msgstr "节点测速"
@@ -621,9 +615,6 @@ msgstr "运行时长"
 
 msgid "Use Akamai fallback"
 msgstr "使用 Akamai 备用节点"
-
-msgid "Use an independent upstream resolver. A loop back to the router DNS listener will prevent startup."
-msgstr "请使用独立的上游 DNS。指向本机 DNS 入口会产生循环，导致服务无法启动。"
 
 msgid "Version"
 msgstr "版本"

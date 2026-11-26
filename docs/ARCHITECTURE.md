@@ -132,7 +132,8 @@ DNS `SRV` (Type 33) queries return `NOERROR` with 0 answers (short TTL `60s`) to
 - `dns_mode = "manual"`:
   - Does not write any `dnsmasq` fragment.
   - LuCI displays copy-pasteable SmartDNS / AdGuardHome / dnsmasq (with `rebind-domain-ok`) upstream snippets.
-- **Loop prevention**: Daemon's fallback upstream (`upstream_dns`, default `223.5.5.5:53`) must never point to its own listen address or to **any local router interface IP on port 53** when `dns_mode = "dnsmasq"`.
+- **Fallback upstream**: UCI `upstream_dns` defaults to empty. At startup, init selects a usable global dnsmasq `server=` address, then a WAN nameserver from `resolv.conf.auto`, and finally `223.5.5.5:53`. LuCI displays an automatic choice while the field is empty. Selecting or entering an address saves an explicit override. Clearing the field restores automatic selection.
+- **Loop prevention**: The upstream must never point to the daemon listener or, in `dnsmasq` mode, to **any local router interface IP on port 53**. A looping override prevents startup.
 
 ---
 
@@ -144,7 +145,7 @@ config main 'main'
     option dns_mode 'dnsmasq'            # 'dnsmasq' | 'manual'
     option dns_bind '127.0.0.1'
     option dns_port '5353'
-    option upstream_dns '223.5.5.5:53'
+    option upstream_dns ''               # empty or absent selects the upstream automatically
     option dns_ttl '60'
     option http_mode 'alias_ip'          # 'alias_ip' | 'custom_port'
     option lan_device 'br-lan'
@@ -220,7 +221,7 @@ config speedtest 'speedtest'
 
 The `xboxdownload.init` script renders UCI into `/var/etc/xboxdownload.json` (using `jsonfilter` / `jshn.sh` from `/usr/share/libubox/jshn.sh`) and launches `xboxdownloadd run --config /var/etc/xboxdownload.json`.
 
-Exact JSON structure (all fields have serde defaults in Rust so partial configs still work):
+The rendered `dns.upstream` contains the resolved endpoint or the explicit override. The example shows the last-resort resolver. All fields have serde defaults in Rust so partial configs still work.
 
 ```json
 {
@@ -429,12 +430,12 @@ The `rpcd` script `/usr/libexec/rpcd/luci.xboxdownload` exposes ubus object `luc
 - `save_custom_ips` (`group`, `text`) -> proxies `save_custom_ips`
 - `self_check` -> proxies `self_check`
 - `suggest_alias_ip` (`lan_device`) -> inspects `ip -4 addr show dev <lan_device>`, suggests an unused high IP in the same subnet (checked via `ip addr`, `ip neigh`, and `ping -I <lan_device> -c 1 -W 1`), returns `{"lan_ip": "192.168.1.1", "cidr": "192.168.1.1/24", "suggested_ip": "192.168.1.253", "in_use": false}`
-- `suggest_upstream_dns` (`params: {}`) -> read-only discovery of candidate values for `upstream_dns` (implemented in `ucode`, which LuCI already ships). Returns `{"candidates": [{"address": "127.0.0.1:6053", "source": "dnsmasq_upstream", "service": "SmartDNS"}, ...]}` with router-local candidates first. Sources, in order:
-  - `dnsmasq_upstream`: `server=` lines from the active `/var/etc/dnsmasq.conf.*` (falling back to `dhcp.@dnsmasq[0].server`); domain-scoped `server=/.../` entries are ignored. A loopback upstream on the SmartDNS UCI port is labelled `SmartDNS`.
-  - `local_service`: an enabled SmartDNS (`smartdns.@smartdns[0]`) on a non-53 port that dnsmasq does not already reference.
+- `suggest_upstream_dns` (`params: {}`) returns an automatic upstream preview and manual choices, for example `{"auto_address":"127.0.0.1:6053","candidates":[{"address":"127.0.0.1:6053","source":"dnsmasq_upstream","service":"SmartDNS"}]}`. The read-only `/etc/init.d/xboxdownload resolve_upstream` command computes `auto_address` using the startup rules while ignoring any saved override. If the command is unavailable or returns an invalid endpoint, rpcd uses the first non-public candidate or `223.5.5.5:53`. LuCI can also display candidates from an older rpcd that omits `auto_address`.
+  - `dnsmasq_upstream`: global `server=` entries in configuration order from the active `/var/etc/dnsmasq.conf.*` (falling back to `dhcp.@dnsmasq[0].server`). Domain-scoped entries are skipped. A loopback upstream on the SmartDNS UCI port is labelled `SmartDNS`.
   - `wan_dns`: `nameserver` lines from `/tmp/resolv.conf.d/resolv.conf.auto` (or `/tmp/resolv.conf.auto`).
+  - `local_service`: an enabled SmartDNS (`smartdns.@smartdns[0]`) on a non-53 port that dnsmasq does not already reference.
   - `public`: AliDNS `223.5.5.5`, DNSPod `119.29.29.29`, Cloudflare `1.1.1.1`, Google `8.8.8.8`.
-  - Loop guard: any router-local, loopback or `dns_bind` address on port 53 or on the daemon `dns_port` is dropped, as are `0.0.0.0`, `::` and duplicates. IPv4-mapped IPv6 is canonicalized before comparison. The init script still enforces the same rule at start-up, so a hand-edited UCI value cannot create a loop.
+  - Loop guard: any router-local, loopback or `dns_bind` address on port 53 or on the daemon `dns_port` is dropped, as are `0.0.0.0`, `::` and duplicates. IPv4-mapped IPv6 is canonicalized before comparison. Init independently checks the automatic endpoint and manual overrides against the configured listener and DNS mode at startup.
 - `service_action` (`action`: `start|stop|restart|reload`) -> executes `/etc/init.d/xboxdownload <action>`
 
 ACL (`/usr/share/rpcd/acl.d/luci-app-xboxdownload.json`, role `luci-app-xboxdownload`):
