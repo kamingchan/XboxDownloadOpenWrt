@@ -1,0 +1,35 @@
+{
+	"luci-app-xboxdownload": {
+		"description": "Manage Xbox download acceleration",
+		"read": {
+			"ubus": {
+				"luci.xboxdownload": [
+					"status",
+					"logs",
+					"speedtest_status",
+					"list_ips",
+					"self_check",
+					"suggest_alias_ip"
+				]
+			},
+			"uci": [
+				"xboxdownload"
+			]
+		},
+		"write": {
+			"ubus": {
+				"luci.xboxdownload": [
+					"speedtest_start",
+					"speedtest_cancel",
+					"apply_ip",
+					"sync_ips",
+					"save_custom_ips",
+					"service_action"
+				]
+			},
+			"uci": [
+				"xboxdownload"
+			]
+		}
+	}
+}

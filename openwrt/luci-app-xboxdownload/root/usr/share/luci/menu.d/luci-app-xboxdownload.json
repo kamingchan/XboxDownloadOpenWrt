@@ -1,0 +1,38 @@
+{
+	"admin/services/xboxdownload": {
+		"title": "Xbox Download",
+		"order": 60,
+		"action": {
+			"type": "firstchild"
+		},
+		"depends": {
+			"acl": [
+				"luci-app-xboxdownload"
+			]
+		}
+	},
+	"admin/services/xboxdownload/overview": {
+		"title": "Overview",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "xboxdownload/overview"
+		}
+	},
+	"admin/services/xboxdownload/speedtest": {
+		"title": "Node speed test",
+		"order": 20,
+		"action": {
+			"type": "view",
+			"path": "xboxdownload/speedtest"
+		}
+	},
+	"admin/services/xboxdownload/settings": {
+		"title": "Settings",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "xboxdownload/settings"
+		}
+	}
+}

@@ -1,0 +1,213 @@
+#!/bin/sh
+
+# shellcheck disable=SC1091
+. /usr/share/libubox/jshn.sh
+
+error() {
+	json_init
+	json_add_boolean ok 0
+	json_add_string error "$1"
+	json_dump
+	exit 0
+}
+
+# Rebuild requests from typed fields, excluding rpcd session metadata.
+field() {
+	json_get_type actual "$1"
+	if [ -z "$actual" ] && [ "$#" -gt 2 ]; then
+		value=$3
+	elif [ "$actual" = "$2" ]; then
+		json_get_var value "$1"
+	else
+		error "Invalid parameter: $1"
+	fi
+}
+
+group_arg() {
+	field group string
+	case "$value" in xbox_cn1|xbox_cn2|xbox_app|akamai) group=$value ;; *) error 'Invalid group' ;; esac
+}
+
+valid_ip() {
+	case "$2" in */*|*%*|'') return 1 ;; esac
+	/sbin/validate_data "$1" "$2" 2>/dev/null
+}
+
+suggest_alias() {
+	case "$1" in ''|*[!A-Za-z0-9_.-]*|-*) error 'Invalid LAN device' ;; esac
+	addrs=$(ip -4 addr show dev "$1" 2>/dev/null) || error 'LAN device unavailable'
+	cidr=$(printf '%s\n' "$addrs" | awk '$1 == "inet" && !/ secondary / { print $2; exit }')
+	[ -n "$cidr" ] || error 'LAN device has no primary IPv4 address'
+	lan_ip=${cidr%/*}
+	# Use the actual network boundaries, including non-.0 and /30 subnets.
+	candidates=$(awk -v addr="$cidr" 'BEGIN {
+		split(addr, host, "/"); split(host[1], oct, "."); prefix = host[2] + 0
+		if (prefix < 0 || prefix > 30) exit
+		for (i = 1; i <= 4; i++) ip = ip * 256 + oct[i]
+		size = 2 ^ (32 - prefix); network = int(ip / size) * size
+		broadcast = network + size - 1
+		for (n = 2; n <= 6 && broadcast - n > network; n++) {
+			x = broadcast - n
+			printf "%d.%d.%d.%d\n", int(x/16777216), int(x/65536)%256, int(x/256)%256, x%256
+		}
+		x = broadcast - 1
+		printf "%d.%d.%d.%d\n", int(x/16777216), int(x/65536)%256, int(x/256)%256, x%256
+	}')
+	local_addrs=$(ip -4 addr show) || error 'Cannot read local addresses'
+	neighbours=$(ip neigh show dev "$1") || error 'Cannot read neighbours'
+	suggestion=''
+	for candidate in $candidates; do
+		printf '%s\n' "$local_addrs" | awk -v ip="$candidate" '$1 == "inet" { split($2,a,"/"); if (a[1] == ip) found=1 } END {exit !found}' && continue
+		printf '%s\n' "$neighbours" | awk -v ip="$candidate" '$1 == ip && $NF != "FAILED" {found=1} END {exit !found}' && continue
+		ping -I "$1" -c 1 -W 1 "$candidate" >/dev/null 2>&1 && continue
+		# An occupied address may answer ARP even when it drops echo requests.
+		ip neigh show to "$candidate" dev "$1" | awk '/lladdr/ && $NF != "FAILED" {found=1} END {exit !found}' && continue
+		suggestion=$candidate
+		break
+	done
+	json_init
+	json_add_string lan_ip "$lan_ip"
+	json_add_string cidr "$cidr"
+	json_add_string suggested_ip "$suggestion"
+	if [ -n "$suggestion" ]; then json_add_boolean in_use 0; else json_add_boolean in_use 1; fi
+	json_dump
+}
+
+if [ "$1" = list ]; then
+	cat <<'JSON'
+{"status":{},"logs":{"limit":0},"speedtest_start":{"group":"","ip_family":"","filter_keyword":"","auto_apply":false},"speedtest_status":{},"speedtest_cancel":{},"apply_ip":{"group":"","ipv4":"","ipv6":""},"sync_ips":{"mirror":"","custom_base":""},"list_ips":{"group":"","ip_family":"","filter_keyword":""},"save_custom_ips":{"group":"","text":""},"self_check":{},"suggest_alias_ip":{"lan_device":""},"service_action":{"action":""}}
+JSON
+	exit 0
+fi
+[ "$1" = call ] || exit 1
+method=$2
+json_init
+json_load "$(cat)" || error 'Invalid JSON'
+case "$method" in
+	status|self_check|speedtest_status|speedtest_cancel) json_init ;;
+	logs)
+		field limit int 50
+		case "$value" in ''|*[!0-9]*) error 'Invalid log limit' ;; esac
+		limit=$value
+		json_init
+		json_add_int limit "$limit"
+		;;
+	speedtest_start|list_ips)
+		group_arg
+		field ip_family string ipv4
+		case "$value" in ipv4|ipv6|dual) family=$value ;; *) error 'Invalid address family' ;; esac
+		field filter_keyword string ''
+		[ "${#value}" -le 256 ] || error 'Filter is too long'
+		keyword=$value
+		if [ "$method" = speedtest_start ]; then
+			field auto_apply boolean 0
+			auto_apply=$value
+		fi
+		json_init
+		json_add_string group "$group"
+		json_add_string ip_family "$family"
+		json_add_string filter_keyword "$keyword"
+		[ "$method" != speedtest_start ] || json_add_boolean auto_apply "$auto_apply"
+		;;
+	apply_ip)
+		group_arg
+		field ipv4 string
+		ipv4=$value
+		field ipv6 string
+		ipv6=$value
+		[ -z "$ipv4" ] || valid_ip ip4addr "$ipv4" || error 'Invalid IPv4 address'
+		[ -z "$ipv6" ] || valid_ip ip6addr "$ipv6" || error 'Invalid IPv6 address'
+		json_init
+		json_add_string group "$group"
+		json_add_string ipv4 "$ipv4"
+		json_add_string ipv6 "$ipv6"
+		;;
+	save_custom_ips)
+		group_arg
+		field text string
+		custom_text=$value
+		[ "${#custom_text}" -le 49152 ] || error 'List is too long'
+		while IFS= read -r line; do
+			address=${line%%[[:space:]]*}
+			[ -z "$line" ] || valid_ip ipaddr "$address" || error 'Invalid address in custom list'
+		done <<EOF
+$custom_text
+EOF
+		json_init
+		json_add_string group "$group"
+		json_add_string text "$custom_text"
+		;;
+	sync_ips)
+		field mirror string github
+		mirror=$value
+		case "$mirror" in github|jsdelivr|custom) ;; *) error 'Invalid mirror' ;; esac
+		field custom_base string ''
+		base=$value
+		if [ "$mirror" = custom ] || [ -n "$base" ]; then
+			case "$base" in *[[:space:]]*) error 'Invalid mirror URL' ;; http://?*|https://?*) ;; *) error 'Invalid mirror URL' ;; esac
+		fi
+		json_init
+		json_add_string mirror "$mirror"
+		json_add_string custom_base "$base"
+		;;
+	suggest_alias_ip)
+		field lan_device string br-lan
+		suggest_alias "$value"
+		exit 0
+		;;
+	service_action)
+		field action string
+		case "$value" in start|stop|restart|reload) ;; *) error 'Invalid service action' ;; esac
+		/etc/init.d/xboxdownload "$value" >&2 || error 'Service action failed'
+		echo '{"ok":true}'
+		exit 0
+		;;
+	*) error 'Unknown method' ;;
+esac
+
+offline() {
+	case "$method" in
+		status|speedtest_status) echo '{"running":false}' ;;
+		logs) echo '{"entries":[]}' ;;
+		apply_ip)
+			/usr/libexec/xboxdownload/apply-ip "$group" "$ipv4" "$ipv6" >&2 || error 'Failed to save selected IP'
+			echo '{"ok":true,"running":false}'
+			;;
+		*) error 'Service is stopped' ;;
+	esac
+	exit 0
+}
+
+SOCKET=$(uci -q get xboxdownload.main.socket_path) || SOCKET=/var/run/xboxdownload.sock
+[ -S "$SOCKET" ] || offline
+params=$(json_dump)
+reply=$(xboxdownloadd ctl --socket "$SOCKET" --method "$method" --params "$params")
+rc=$?
+ok=$(printf '%s' "$reply" | jsonfilter -e '@.ok' 2>/dev/null)
+if [ "$ok" = false ]; then
+	reason=$(printf '%s' "$reply" | jsonfilter -e '@.error')
+	case "$reason" in 'Connection refused (os error 111)'|'No such file or directory (os error 2)') offline ;; esac
+	printf '%s\n' "$reply"
+	exit 0
+fi
+[ "$rc" -eq 0 ] && [ "$ok" = true ] || error 'Control request failed'
+data=$(printf '%s' "$reply" | jsonfilter -e '@.data') || error 'Invalid control response'
+if [ "$method" = list_ips ]; then
+	# The socket returns merged candidates. Editing needs the original custom
+	# text, including notes and blank lines, without a general file-read ACL.
+	cache=$(jsonfilter -i /var/etc/xboxdownload.json -e '@.runtime.cache_dir') || error 'IP cache unavailable'
+	file="$cache/custom.$group.txt"
+	body=''
+	if [ -f "$file" ]; then
+		[ "$(wc -c < "$file")" -le 49152 ] || error 'List is too long'
+		body=$(cat "$file" && printf '.') || error 'IP cache unavailable'
+		body=${body%.}
+	fi
+	json_init
+	json_add_string custom_text "$body"
+	custom_json=$(json_dump)
+	# Both fragments are JSON objects encoded by jsonfilter and jshn.
+	printf '%s,%s\n' "${custom_json%\}}" "${data#\{}"
+else
+	printf '%s\n' "$data"
+fi

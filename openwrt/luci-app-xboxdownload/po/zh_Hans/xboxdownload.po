@@ -1,0 +1,602 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: XboxDownloadOpenWrt 0.1\n"
+"PO-Revision-Date: 2026-11-26 00:00+0800\n"
+"Last-Translator: XboxDownloadOpenWrt contributors\n"
+"Language-Team: Simplified Chinese\n"
+"Language: zh_Hans\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "%dh %dm"
+msgstr "%d 小时 %d 分钟"
+
+msgid "302 target"
+msgstr "302 目标地址"
+
+msgid "A failed or slower-than-minimum node can be replaced without the improvement threshold. Failed tests keep the current IP."
+msgstr "当前节点失效或速度低于下限时，允许立即切换；若测速全部失败，则保留当前 IP。"
+
+msgid "Action"
+msgstr "操作"
+
+msgid "Address family"
+msgstr "地址族"
+
+msgid "Addresses"
+msgstr "地址数"
+
+msgid "All"
+msgstr "全部"
+
+msgid "Applied %s to %s."
+msgstr "已将 %s 应用到 %s。"
+
+msgid "Apply"
+msgstr "一键应用"
+
+msgid "Apply-IP hook"
+msgstr "应用节点时执行的脚本"
+
+msgid "Automatic dnsmasq forwarding"
+msgstr "由 dnsmasq 自动分流"
+
+msgid "Automatic speed tests"
+msgstr "定时自动测速"
+
+msgid "Automatic tests"
+msgstr "自动测速"
+
+msgid "Automatic tests and IP sync"
+msgstr "定时测速与 IP 同步"
+
+msgid "Automatically sync IP lists"
+msgstr "自动同步 IP 库"
+
+msgid "Basic settings and network"
+msgstr "基础与网络"
+
+msgid "Blocked SRV queries"
+msgstr "已拦截的 SRV 查询"
+
+msgid "Bundled IP directory"
+msgstr "内置 IP 库目录"
+
+msgid "CDN groups"
+msgstr "CDN 分组"
+
+msgid "Cancel speed test"
+msgstr "取消测速"
+
+msgid "Cancelled"
+msgstr "已取消"
+
+msgid "Candidates for download testing"
+msgstr "入选下载测速的节点数"
+
+msgid "Cannot read local addresses"
+msgstr "无法读取本机地址"
+
+msgid "Cannot read neighbours"
+msgstr "无法读取邻居表"
+
+msgid "Check"
+msgstr "检查项"
+
+msgid "Checking DNS and HTTP…"
+msgstr "正在检查 DNS 和 HTTP…"
+
+msgid "China Mobile"
+msgstr "移动"
+
+msgid "China Telecom"
+msgstr "电信"
+
+msgid "China Unicom"
+msgstr "联通"
+
+msgid "Choose a LAN alias address before enabling the service."
+msgstr "请先配置 LAN 辅助地址，再启用服务。"
+
+msgid "Client IP"
+msgstr "客户端 IP"
+
+msgid "Completed"
+msgstr "已完成"
+
+msgid "Completed with warnings"
+msgstr "已完成，部分操作异常"
+
+msgid "Concurrent TCP probes"
+msgstr "TCP 探测并发数"
+
+msgid "Concurrent downloads"
+msgstr "下载并发数"
+
+msgid "Control request failed"
+msgstr "控制请求失败"
+
+msgid "Control socket path"
+msgstr "控制套接字路径"
+
+msgid "Copied."
+msgstr "已复制。"
+
+msgid "Copy rules"
+msgstr "复制规则"
+
+msgid "Copy the rules for the DNS service on this router."
+msgstr "请复制与本路由器 DNS 服务对应的分流规则。"
+
+msgid "Current group settings unavailable"
+msgstr "无法读取当前分组设置"
+
+msgid "Custom IP list"
+msgstr "自定义 IP 列表"
+
+msgid "Custom URL"
+msgstr "自定义地址"
+
+msgid "Custom list saved."
+msgstr "自定义列表已保存。"
+
+msgid "Custom list unavailable"
+msgstr "无法读取自定义列表"
+
+msgid "Custom listener"
+msgstr "自定义监听端口"
+
+msgid "Custom test URL"
+msgstr "自定义测速 URL"
+
+msgid "DNS TTL (seconds)"
+msgstr "DNS 缓存时间（秒）"
+
+msgid "DNS bind address"
+msgstr "DNS 绑定地址"
+
+msgid "DNS integration"
+msgstr "DNS 分流方式"
+
+msgid "DNS listener"
+msgstr "DNS 监听地址"
+
+msgid "DNS port"
+msgstr "DNS 端口"
+
+msgid "DNS queries"
+msgstr "DNS 查询数"
+
+msgid "Defaults to the LAN address. Clients must reach the redirect listener on port 80."
+msgstr "默认使用 LAN 地址。客户端对目标地址 80 端口的请求必须能到达重定向服务。"
+
+msgid "Defer after a redirect (minutes)"
+msgstr "命中重定向后延迟测速（分钟）"
+
+msgid "Deferred"
+msgstr "已延后"
+
+msgid "Details"
+msgstr "详情"
+
+msgid "Disabled"
+msgstr "已关闭"
+
+msgid "Download AAAA records are already filtered in IPv4 mode. Leave this empty unless a client persistently uses cached IPv6 routes. The fallback restricts DHCPv6 and ICMPv6 for the listed clients."
+msgstr "IPv4 模式已在 DNS 层过滤下载域名的 AAAA 记录，通常留空即可。仅当客户端持续使用缓存的 IPv6 路径时再填写；兜底规则会限制所列设备的 DHCPv6 与 ICMPv6。"
+
+msgid "Download DNS (A)"
+msgstr "下载域名 A 记录"
+
+msgid "Download DNS (AAAA)"
+msgstr "下载域名 AAAA 记录"
+
+msgid "Download range per node (MiB)"
+msgstr "每节点下载分片（MiB）"
+
+msgid "Download timeout (seconds)"
+msgstr "下载超时（秒）"
+
+msgid "Downloading test ranges"
+msgstr "正在分段下载测速"
+
+msgid "Dual stack"
+msgstr "双栈"
+
+msgid "Enable automatic tests"
+msgstr "启用定时自动测速"
+
+msgid "Enable group"
+msgstr "启用分组"
+
+msgid "Enable service"
+msgstr "启用服务"
+
+msgid "Enable the service in Settings to start it."
+msgstr "请先在「设置」中启用服务。"
+
+msgid "Enabled"
+msgstr "已启用"
+
+msgid "End-to-end check"
+msgstr "端到端自检"
+
+msgid "Enter a LAN device name."
+msgstr "请输入有效的 LAN 设备名称。"
+
+msgid "Enter an HTTP or HTTPS URL."
+msgstr "请输入 HTTP 或 HTTPS 地址。"
+
+msgid "Enter one IP per line, optionally followed by a tab and a note in parentheses."
+msgstr "每行填写一个 IP，可在后面加上制表符和括号备注，格式为「IP〈Tab〉(备注)」。"
+
+msgid "Failed"
+msgstr "失败"
+
+msgid "Failed to save selected IP"
+msgstr "无法保存选定的 IP"
+
+msgid "Fallback DNS server"
+msgstr "回退 DNS 服务器"
+
+msgid "Fallback client MAC addresses"
+msgstr "需启用兜底策略的客户端 MAC 地址"
+
+msgid "Fastest download"
+msgstr "下载速度从高到低"
+
+msgid "File"
+msgstr "文件"
+
+msgid "Filter is too long"
+msgstr "筛选关键词过长"
+
+msgid "Filter keyword"
+msgstr "筛选关键词"
+
+msgid "Filtered AAAA queries"
+msgstr "已过滤的 AAAA 查询"
+
+msgid "Find an unused IP"
+msgstr "查找空闲辅助地址"
+
+msgid "Group"
+msgstr "分组"
+
+msgid "Group policies"
+msgstr "分组策略"
+
+msgid "HTTP bind address"
+msgstr "HTTP 绑定地址"
+
+msgid "HTTP interception"
+msgstr "HTTP 接入模式"
+
+msgid "HTTP listener"
+msgstr "HTTP 监听地址"
+
+msgid "HTTP listener port"
+msgstr "HTTP 监听端口"
+
+msgid "HTTP redirects"
+msgstr "HTTP 重定向次数"
+
+msgid "HTTP status"
+msgstr "HTTP 状态码"
+
+msgid "Hong Kong"
+msgstr "香港"
+
+msgid "IP address"
+msgstr "IP 地址"
+
+msgid "IP cache directory"
+msgstr "IP 缓存目录"
+
+msgid "IP cache unavailable"
+msgstr "无法读取 IP 缓存"
+
+msgid "IP list mirror"
+msgstr "IP 库镜像"
+
+msgid "IPv6 fallback"
+msgstr "IPv6 兜底策略"
+
+msgid "Idle"
+msgstr "空闲"
+
+msgid "Invalid IPv4 address"
+msgstr "IPv4 地址无效"
+
+msgid "Invalid IPv6 address"
+msgstr "IPv6 地址无效"
+
+msgid "Invalid JSON"
+msgstr "JSON 格式无效"
+
+msgid "Invalid LAN device"
+msgstr "LAN 设备名称无效"
+
+msgid "Invalid address family"
+msgstr "地址族无效"
+
+msgid "Invalid address in custom list"
+msgstr "自定义列表中有无效地址"
+
+msgid "Invalid control response"
+msgstr "控制接口响应无效"
+
+msgid "Invalid group"
+msgstr "分组无效"
+
+msgid "Invalid log limit"
+msgstr "日志条数无效"
+
+msgid "Invalid mirror"
+msgstr "镜像无效"
+
+msgid "Invalid mirror URL"
+msgstr "镜像地址无效"
+
+msgid "Invalid parameter: %s"
+msgstr "参数无效：%s"
+
+msgid "Invalid service action"
+msgstr "服务操作无效"
+
+msgid "Japan"
+msgstr "日本"
+
+msgid "Kept current node"
+msgstr "已保留当前节点"
+
+msgid "LAN alias IP"
+msgstr "LAN 辅助 IP"
+
+msgid "LAN alias IPv4 address"
+msgstr "LAN 辅助 IPv4 地址"
+
+msgid "LAN device"
+msgstr "LAN 设备"
+
+msgid "LAN device has no primary IPv4 address"
+msgstr "LAN 设备没有主 IPv4 地址"
+
+msgid "LAN device unavailable"
+msgstr "LAN 设备不可用"
+
+msgid "Last result"
+msgstr "上次运行结果"
+
+msgid "Last run"
+msgstr "上次运行时间"
+
+msgid "Last speed"
+msgstr "上次测速速度"
+
+msgid "Last tested"
+msgstr "上次测速时间"
+
+msgid "Legacy content redirect"
+msgstr "旧版内容域名重定向"
+
+msgid "List is too long"
+msgstr "自定义列表过长"
+
+msgid "Loading candidates"
+msgstr "正在加载候选节点"
+
+msgid "Loading…"
+msgstr "正在加载…"
+
+msgid "Location / carrier"
+msgstr "归属地 / 运营商"
+
+msgid "Location or carrier"
+msgstr "地区或运营商"
+
+msgid "Lowest latency"
+msgstr "延迟从低到高"
+
+msgid "Manage Xbox download acceleration"
+msgstr "管理 Xbox 下载加速"
+
+msgid "Manual DNS rules"
+msgstr "手动 DNS 分流规则"
+
+msgid "Manual forwarding"
+msgstr "手动配置分流"
+
+msgid "Measuring TCP latency"
+msgstr "正在测量 TCP 延迟"
+
+msgid "Minimum current speed (MB/s)"
+msgstr "当前节点最低速度（MB/s）"
+
+msgid "Mirror base URL"
+msgstr "镜像根地址"
+
+msgid "Next run"
+msgstr "预计下次运行"
+
+msgid "No"
+msgstr "否"
+
+msgid "No available address found in the probed range."
+msgstr "探测范围内未找到空闲地址。"
+
+msgid "No checks returned."
+msgstr "未收到自检结果。"
+
+msgid "No file results returned."
+msgstr "未收到文件同步结果。"
+
+msgid "No measurements yet."
+msgstr "暂无测速结果。"
+
+msgid "No redirects recorded."
+msgstr "暂无重定向记录。"
+
+msgid "Node speed test"
+msgstr "节点测速"
+
+msgid "Overview"
+msgstr "总览"
+
+msgid "Passed"
+msgstr "通过"
+
+msgid "Path"
+msgstr "路径"
+
+msgid "Preferred hour (0–23, or -1 for any hour)"
+msgstr "首选整点（0–23，-1 表示不限）"
+
+msgid "Recent HTTP 302 redirects"
+msgstr "实时 HTTP 302 命中日志"
+
+msgid "Redirect address"
+msgstr "重定向地址"
+
+msgid "Redirect log capacity"
+msgstr "重定向日志保留条数"
+
+msgid "Redirect target IPv4"
+msgstr "重定向目标 IPv4"
+
+msgid "Request failed"
+msgstr "请求失败"
+
+msgid "Request host"
+msgstr "请求主机名"
+
+msgid "Required speed improvement (%)"
+msgstr "切换所需的最低速度提升（%）"
+
+msgid "Reserve this address outside your DHCP pool. A sleeping device may not answer a probe."
+msgstr "请在 DHCP 地址池外预留此地址。休眠设备可能不会响应探测。"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Result"
+msgstr "结果"
+
+msgid "Results"
+msgstr "测速结果"
+
+msgid "Run end-to-end check"
+msgstr "一键端到端自检"
+
+msgid "Running"
+msgstr "运行中"
+
+msgid "SRV fallback suppression"
+msgstr "SRV 回退拦截"
+
+msgid "Save custom IPs"
+msgstr "保存自定义 IP"
+
+msgid "Saved %s for %s. Enable this group and address family in Settings to use it."
+msgstr "已将 %s 保存至 %s。请在「设置」中启用该分组和地址族后使用。"
+
+msgid "Select and copy the rules manually."
+msgstr "请选中并手动复制规则。"
+
+msgid "Selected IPv4"
+msgstr "选定的 IPv4"
+
+msgid "Selected IPv6"
+msgstr "选定的 IPv6"
+
+msgid "Service"
+msgstr "服务"
+
+msgid "Service action failed"
+msgstr "服务操作失败"
+
+msgid "Service is stopped"
+msgstr "服务已停止"
+
+msgid "Service status"
+msgstr "服务状态"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "Singapore"
+msgstr "新加坡"
+
+msgid "Sort results"
+msgstr "结果排序"
+
+msgid "Speed"
+msgstr "实测速度"
+
+msgid "Start"
+msgstr "启动"
+
+msgid "Start speed test"
+msgstr "开始测速"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Stopped"
+msgstr "已停止"
+
+msgid "Suggest LAN address"
+msgstr "推荐 LAN 地址"
+
+msgid "Suggested %s on %s. Save and apply to use it."
+msgstr "推荐地址为 %s，所在网段为 %s。保存并应用后生效。"
+
+msgid "Switched"
+msgstr "已切换节点"
+
+msgid "Sync online IP lists"
+msgstr "同步在线 IP 库"
+
+msgid "Synced"
+msgstr "已同步"
+
+msgid "Syncing IP lists…"
+msgstr "正在同步 IP 库…"
+
+msgid "TCP latency"
+msgstr "TCP 延迟"
+
+msgid "TCP timeout (ms)"
+msgstr "TCP 超时（毫秒）"
+
+msgid "Test interval (hours)"
+msgstr "测速间隔（小时）"
+
+msgid "Testing the current node"
+msgstr "正在测试当前节点"
+
+msgid "Time"
+msgstr "时间"
+
+msgid "Unknown method"
+msgstr "未知方法"
+
+msgid "Uptime"
+msgstr "运行时长"
+
+msgid "Use an independent upstream resolver. A loop back to the router DNS listener will prevent startup."
+msgstr "请使用独立的上游 DNS。指向本机 DNS 入口会产生循环，导致服务无法启动。"
+
+msgid "Version"
+msgstr "版本"
+
+msgid "Xbox Download"
+msgstr "Xbox 下载"
+
+msgid "Xbox content redirect"
+msgstr "Xbox 内容域名重定向"
+
+msgid "Yes"
+msgstr "是"

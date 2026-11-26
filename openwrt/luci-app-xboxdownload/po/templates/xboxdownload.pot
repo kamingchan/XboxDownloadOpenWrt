@@ -1,0 +1,602 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: XboxDownloadOpenWrt 0.1\n"
+"PO-Revision-Date: 2026-11-26 00:00+0800\n"
+"Last-Translator: XboxDownloadOpenWrt contributors\n"
+"Language-Team: English\n"
+"Language: en\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "%dh %dm"
+msgstr ""
+
+msgid "302 target"
+msgstr ""
+
+msgid "A failed or slower-than-minimum node can be replaced without the improvement threshold. Failed tests keep the current IP."
+msgstr ""
+
+msgid "Action"
+msgstr ""
+
+msgid "Address family"
+msgstr ""
+
+msgid "Addresses"
+msgstr ""
+
+msgid "All"
+msgstr ""
+
+msgid "Applied %s to %s."
+msgstr ""
+
+msgid "Apply"
+msgstr ""
+
+msgid "Apply-IP hook"
+msgstr ""
+
+msgid "Automatic dnsmasq forwarding"
+msgstr ""
+
+msgid "Automatic speed tests"
+msgstr ""
+
+msgid "Automatic tests"
+msgstr ""
+
+msgid "Automatic tests and IP sync"
+msgstr ""
+
+msgid "Automatically sync IP lists"
+msgstr ""
+
+msgid "Basic settings and network"
+msgstr ""
+
+msgid "Blocked SRV queries"
+msgstr ""
+
+msgid "Bundled IP directory"
+msgstr ""
+
+msgid "CDN groups"
+msgstr ""
+
+msgid "Cancel speed test"
+msgstr ""
+
+msgid "Cancelled"
+msgstr ""
+
+msgid "Candidates for download testing"
+msgstr ""
+
+msgid "Cannot read local addresses"
+msgstr ""
+
+msgid "Cannot read neighbours"
+msgstr ""
+
+msgid "Check"
+msgstr ""
+
+msgid "Checking DNS and HTTP…"
+msgstr ""
+
+msgid "China Mobile"
+msgstr ""
+
+msgid "China Telecom"
+msgstr ""
+
+msgid "China Unicom"
+msgstr ""
+
+msgid "Choose a LAN alias address before enabling the service."
+msgstr ""
+
+msgid "Client IP"
+msgstr ""
+
+msgid "Completed"
+msgstr ""
+
+msgid "Completed with warnings"
+msgstr ""
+
+msgid "Concurrent TCP probes"
+msgstr ""
+
+msgid "Concurrent downloads"
+msgstr ""
+
+msgid "Control request failed"
+msgstr ""
+
+msgid "Control socket path"
+msgstr ""
+
+msgid "Copied."
+msgstr ""
+
+msgid "Copy rules"
+msgstr ""
+
+msgid "Copy the rules for the DNS service on this router."
+msgstr ""
+
+msgid "Current group settings unavailable"
+msgstr ""
+
+msgid "Custom IP list"
+msgstr ""
+
+msgid "Custom URL"
+msgstr ""
+
+msgid "Custom list saved."
+msgstr ""
+
+msgid "Custom list unavailable"
+msgstr ""
+
+msgid "Custom listener"
+msgstr ""
+
+msgid "Custom test URL"
+msgstr ""
+
+msgid "DNS TTL (seconds)"
+msgstr ""
+
+msgid "DNS bind address"
+msgstr ""
+
+msgid "DNS integration"
+msgstr ""
+
+msgid "DNS listener"
+msgstr ""
+
+msgid "DNS port"
+msgstr ""
+
+msgid "DNS queries"
+msgstr ""
+
+msgid "Defaults to the LAN address. Clients must reach the redirect listener on port 80."
+msgstr ""
+
+msgid "Defer after a redirect (minutes)"
+msgstr ""
+
+msgid "Deferred"
+msgstr ""
+
+msgid "Details"
+msgstr ""
+
+msgid "Disabled"
+msgstr ""
+
+msgid "Download AAAA records are already filtered in IPv4 mode. Leave this empty unless a client persistently uses cached IPv6 routes. The fallback restricts DHCPv6 and ICMPv6 for the listed clients."
+msgstr ""
+
+msgid "Download DNS (A)"
+msgstr ""
+
+msgid "Download DNS (AAAA)"
+msgstr ""
+
+msgid "Download range per node (MiB)"
+msgstr ""
+
+msgid "Download timeout (seconds)"
+msgstr ""
+
+msgid "Downloading test ranges"
+msgstr ""
+
+msgid "Dual stack"
+msgstr ""
+
+msgid "Enable automatic tests"
+msgstr ""
+
+msgid "Enable group"
+msgstr ""
+
+msgid "Enable service"
+msgstr ""
+
+msgid "Enable the service in Settings to start it."
+msgstr ""
+
+msgid "Enabled"
+msgstr ""
+
+msgid "End-to-end check"
+msgstr ""
+
+msgid "Enter a LAN device name."
+msgstr ""
+
+msgid "Enter an HTTP or HTTPS URL."
+msgstr ""
+
+msgid "Enter one IP per line, optionally followed by a tab and a note in parentheses."
+msgstr ""
+
+msgid "Failed"
+msgstr ""
+
+msgid "Failed to save selected IP"
+msgstr ""
+
+msgid "Fallback DNS server"
+msgstr ""
+
+msgid "Fallback client MAC addresses"
+msgstr ""
+
+msgid "Fastest download"
+msgstr ""
+
+msgid "File"
+msgstr ""
+
+msgid "Filter is too long"
+msgstr ""
+
+msgid "Filter keyword"
+msgstr ""
+
+msgid "Filtered AAAA queries"
+msgstr ""
+
+msgid "Find an unused IP"
+msgstr ""
+
+msgid "Group"
+msgstr ""
+
+msgid "Group policies"
+msgstr ""
+
+msgid "HTTP bind address"
+msgstr ""
+
+msgid "HTTP interception"
+msgstr ""
+
+msgid "HTTP listener"
+msgstr ""
+
+msgid "HTTP listener port"
+msgstr ""
+
+msgid "HTTP redirects"
+msgstr ""
+
+msgid "HTTP status"
+msgstr ""
+
+msgid "Hong Kong"
+msgstr ""
+
+msgid "IP address"
+msgstr ""
+
+msgid "IP cache directory"
+msgstr ""
+
+msgid "IP cache unavailable"
+msgstr ""
+
+msgid "IP list mirror"
+msgstr ""
+
+msgid "IPv6 fallback"
+msgstr ""
+
+msgid "Idle"
+msgstr ""
+
+msgid "Invalid IPv4 address"
+msgstr ""
+
+msgid "Invalid IPv6 address"
+msgstr ""
+
+msgid "Invalid JSON"
+msgstr ""
+
+msgid "Invalid LAN device"
+msgstr ""
+
+msgid "Invalid address family"
+msgstr ""
+
+msgid "Invalid address in custom list"
+msgstr ""
+
+msgid "Invalid control response"
+msgstr ""
+
+msgid "Invalid group"
+msgstr ""
+
+msgid "Invalid log limit"
+msgstr ""
+
+msgid "Invalid mirror"
+msgstr ""
+
+msgid "Invalid mirror URL"
+msgstr ""
+
+msgid "Invalid parameter: %s"
+msgstr ""
+
+msgid "Invalid service action"
+msgstr ""
+
+msgid "Japan"
+msgstr ""
+
+msgid "Kept current node"
+msgstr ""
+
+msgid "LAN alias IP"
+msgstr ""
+
+msgid "LAN alias IPv4 address"
+msgstr ""
+
+msgid "LAN device"
+msgstr ""
+
+msgid "LAN device has no primary IPv4 address"
+msgstr ""
+
+msgid "LAN device unavailable"
+msgstr ""
+
+msgid "Last result"
+msgstr ""
+
+msgid "Last run"
+msgstr ""
+
+msgid "Last speed"
+msgstr ""
+
+msgid "Last tested"
+msgstr ""
+
+msgid "Legacy content redirect"
+msgstr ""
+
+msgid "List is too long"
+msgstr ""
+
+msgid "Loading candidates"
+msgstr ""
+
+msgid "Loading…"
+msgstr ""
+
+msgid "Location / carrier"
+msgstr ""
+
+msgid "Location or carrier"
+msgstr ""
+
+msgid "Lowest latency"
+msgstr ""
+
+msgid "Manage Xbox download acceleration"
+msgstr ""
+
+msgid "Manual DNS rules"
+msgstr ""
+
+msgid "Manual forwarding"
+msgstr ""
+
+msgid "Measuring TCP latency"
+msgstr ""
+
+msgid "Minimum current speed (MB/s)"
+msgstr ""
+
+msgid "Mirror base URL"
+msgstr ""
+
+msgid "Next run"
+msgstr ""
+
+msgid "No"
+msgstr ""
+
+msgid "No available address found in the probed range."
+msgstr ""
+
+msgid "No checks returned."
+msgstr ""
+
+msgid "No file results returned."
+msgstr ""
+
+msgid "No measurements yet."
+msgstr ""
+
+msgid "No redirects recorded."
+msgstr ""
+
+msgid "Node speed test"
+msgstr ""
+
+msgid "Overview"
+msgstr ""
+
+msgid "Passed"
+msgstr ""
+
+msgid "Path"
+msgstr ""
+
+msgid "Preferred hour (0–23, or -1 for any hour)"
+msgstr ""
+
+msgid "Recent HTTP 302 redirects"
+msgstr ""
+
+msgid "Redirect address"
+msgstr ""
+
+msgid "Redirect log capacity"
+msgstr ""
+
+msgid "Redirect target IPv4"
+msgstr ""
+
+msgid "Request failed"
+msgstr ""
+
+msgid "Request host"
+msgstr ""
+
+msgid "Required speed improvement (%)"
+msgstr ""
+
+msgid "Reserve this address outside your DHCP pool. A sleeping device may not answer a probe."
+msgstr ""
+
+msgid "Restart"
+msgstr ""
+
+msgid "Result"
+msgstr ""
+
+msgid "Results"
+msgstr ""
+
+msgid "Run end-to-end check"
+msgstr ""
+
+msgid "Running"
+msgstr ""
+
+msgid "SRV fallback suppression"
+msgstr ""
+
+msgid "Save custom IPs"
+msgstr ""
+
+msgid "Saved %s for %s. Enable this group and address family in Settings to use it."
+msgstr ""
+
+msgid "Select and copy the rules manually."
+msgstr ""
+
+msgid "Selected IPv4"
+msgstr ""
+
+msgid "Selected IPv6"
+msgstr ""
+
+msgid "Service"
+msgstr ""
+
+msgid "Service action failed"
+msgstr ""
+
+msgid "Service is stopped"
+msgstr ""
+
+msgid "Service status"
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Singapore"
+msgstr ""
+
+msgid "Sort results"
+msgstr ""
+
+msgid "Speed"
+msgstr ""
+
+msgid "Start"
+msgstr ""
+
+msgid "Start speed test"
+msgstr ""
+
+msgid "Stop"
+msgstr ""
+
+msgid "Stopped"
+msgstr ""
+
+msgid "Suggest LAN address"
+msgstr ""
+
+msgid "Suggested %s on %s. Save and apply to use it."
+msgstr ""
+
+msgid "Switched"
+msgstr ""
+
+msgid "Sync online IP lists"
+msgstr ""
+
+msgid "Synced"
+msgstr ""
+
+msgid "Syncing IP lists…"
+msgstr ""
+
+msgid "TCP latency"
+msgstr ""
+
+msgid "TCP timeout (ms)"
+msgstr ""
+
+msgid "Test interval (hours)"
+msgstr ""
+
+msgid "Testing the current node"
+msgstr ""
+
+msgid "Time"
+msgstr ""
+
+msgid "Unknown method"
+msgstr ""
+
+msgid "Uptime"
+msgstr ""
+
+msgid "Use an independent upstream resolver. A loop back to the router DNS listener will prevent startup."
+msgstr ""
+
+msgid "Version"
+msgstr ""
+
+msgid "Xbox Download"
+msgstr ""
+
+msgid "Xbox content redirect"
+msgstr ""
+
+msgid "Yes"
+msgstr ""
