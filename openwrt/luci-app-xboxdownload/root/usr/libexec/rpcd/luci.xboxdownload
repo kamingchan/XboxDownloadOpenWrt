@@ -312,6 +312,8 @@ if [ "$ok" = false ]; then
 	printf '%s\n' "$reply"
 	exit 0
 fi
-[ "$rc" -eq 0 ] && [ "$ok" = true ] || error 'Control request failed'
+if [ "$rc" -ne 0 ] || [ "$ok" != true ]; then
+	error 'Control request failed'
+fi
 data=$(printf '%s' "$reply" | jsonfilter -e '@.data') || error 'Invalid control response'
 printf '%s\n' "$data"
