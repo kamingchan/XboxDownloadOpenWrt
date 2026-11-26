@@ -96,7 +96,15 @@ jobs:
           export PATH="${toolchain[0]}/bin:$PATH" STAGING_DIR="${staging[0]}"
           target_env=${RUST_TARGET//-/_}
           export "CARGO_TARGET_${target_env^^}_LINKER=${cc[0]}" "CC_$target_env=${cc[0]}" "AR_$target_env=$ar"
-          export RUSTFLAGS='-C target-feature=+crt-static -C link-self-contained=no'
+          compat="$RUNNER_TEMP/rust-compat"
+          mkdir -p "$compat"
+          eh=$("${cc[0]}" -print-file-name=libgcc_eh.a)
+          if [[ -f "$eh" ]]; then
+            ln -sf "$eh" "$compat/libunwind.a"
+          else
+            "$ar" rcs "$compat/libunwind.a"
+          fi
+          export RUSTFLAGS="-C target-feature=+crt-static -C link-self-contained=no -L native=$compat"
           args=()
           if [[ "$PKG_ARCH" == mipsel_24kc ]]; then args=('-Zbuild-std=std,panic_abort'); fi
           cargo build --locked --release --target "$RUST_TARGET" "${args[@]}"

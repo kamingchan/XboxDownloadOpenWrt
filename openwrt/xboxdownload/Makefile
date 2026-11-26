@@ -51,9 +51,13 @@ else
   # Supply the Rust target with rustup. Tier 3 MIPS needs nightly + rust-src.
   define Build/Compile
 	@test -n "$(XBOXDOWNLOAD_RUST_TARGET)" || { echo 'Set XBOXDOWNLOAD_RUST_TARGET for this architecture'; exit 1; }
+	mkdir -p $(PKG_BUILD_DIR)/rust-compat
+	eh=$$($(TARGET_CROSS)gcc -print-file-name=libgcc_eh.a); \
+		if [ -f "$$eh" ]; then ln -sf "$$eh" $(PKG_BUILD_DIR)/rust-compat/libunwind.a; else $(TARGET_CROSS)ar rcs $(PKG_BUILD_DIR)/rust-compat/libunwind.a; fi
 	cd $(PKG_BUILD_DIR) && \
 		$(RUST_LINKER_ENV)="$(TARGET_CROSS)gcc" CC_$(RUST_ENV_TARGET)="$(TARGET_CROSS)gcc" \
-		AR_$(RUST_ENV_TARGET)="$(TARGET_CROSS)ar" RUSTFLAGS='-C target-feature=+crt-static -C link-self-contained=no' \
+		AR_$(RUST_ENV_TARGET)="$(TARGET_CROSS)ar" \
+		RUSTFLAGS='-C target-feature=+crt-static -C link-self-contained=no -L native=$(PKG_BUILD_DIR)/rust-compat' \
 		cargo $(if $(filter mipsel-unknown-linux-musl,$(XBOXDOWNLOAD_RUST_TARGET)),+nightly) build --release --locked \
 			$(if $(filter mipsel-unknown-linux-musl,$(XBOXDOWNLOAD_RUST_TARGET)),-Zbuild-std=std$(comma)panic_abort) \
 			--target $(XBOXDOWNLOAD_RUST_TARGET) --target-dir target
